@@ -1,0 +1,139 @@
+Our focus won't be micro simulation but meso... Going to simulate effect of the blood flow in vein and arteries where the diameter is bigger then the diameter of the particles. In this way the simulation 
+will be close to the reality even if the particles are rigid bodies.
+
+https://pmc.ncbi.nlm.nih.gov/articles/PMC2390865 -> LBM D2Q9 for the fluid and simple cells representations to simulate realistic vascular networks.
+
+https://onlinelibrary.wiley.com/doi/10.1002/mats.201100013 -> Model of the cell as eliptical rigid particles 
+
+https://www.researchgate.net/publication/265734089_A_fluid-particle_interaction_method_for_blood_flow_with_special_emphasis_on_red_blood_cell_aggregation -> Article with the aim of showing interactions
+between red globes represented as as rigid biconcave-shaped neutrally buoyant particles
+
+The articles above demonstrate how representing particles as rigid bodies is actually an acceptable modelling choiche
+
+For our project i would make:
+* Red blood cells (RBCs) = rigid ellipsoids 
+* Platelets = small spheres
+* Leukocytes (white blood cells) = larger spheres
+* D3Q19 Lattice Boltzmann Method (LBM)
+* Realistic vascular mesh
+
+Theory lattice boltzman:
+https://en.wikipedia.org/wiki/Lattice_Boltzmann_methods  <-- I would suggest to ask to an LLM to give you a simplified view of the physisc that actually is not very complex
+
+D3 -> 3 dimensions
+Q19 -> 19 directions
+
+Fluid particle interaction:
+https://en.wikipedia.org/wiki/Drag_%28physics%29 <-- Low Reynolds section
+
+Fd = 6 * pi * mu * r * (u - v)
+Fd  = drag force acting on the particle
+mu  = dynamic viscosity of the fluid
+r   = particle radius
+u   = local fluid velocity
+v   = particle velocity
+pi  = 3.14159265
+
+If the particle goes faster the fluid slows it down, if it goes fast it pushes it
+
+If we make the red blood cells as elipsoids we have two possibilities:
+-> Rotation as elipsoid (easy) contact as spheres (easy) 
+-> both rotation and contact as elipsoids (more difficult) -> to undertand point of contact (also for this approximations exist)
+
+Schema of required and possible kernels made with LLM (not all the physics already verified):
+1. lbm_collision_kernel
+   - Computes density (rho) and velocity (u) in each lattice cell.
+   - Evaluates the equilibrium distributions feq.
+   - Performs the BGK collision step:
+     f_i* = f_i - (dt/tau) * (f_i - feq_i)
+
+2. lbm_streaming_kernel
+   - Propagates post-collision distributions to neighboring cells
+     along the D3Q19 directions.
+
+3. lbm_boundary_kernel
+   - Applies vessel wall boundary conditions.
+   - Typically uses bounce-back to enforce the no-slip condition.
+
+4. lbm_macroscopic_kernel
+   - Reconstructs macroscopic quantities from distributions:
+       rho = sum(f_i)
+       u   = (1/rho) * sum(f_i * c_i)
+   - Stores rho and u for later use.
+
+5. reset_particle_forces_kernel
+   - Resets forces and torques on all particles:
+       F = 0
+       T = 0
+
+6. interpolate_fluid_to_particles_kernel
+   - Interpolates fluid quantities from the LBM grid
+     to each particle center.
+   - Retrieves:
+       u_fluid
+       Omega_fluid (optional)
+
+7. particle_drag_kernel
+   - Computes fluid-particle interaction forces.
+   - Example:
+       F_drag = 6*pi*mu*r*(u_fluid - v)
+   - Computes hydrodynamic torque if particle rotation is enabled.
+
+8. reset_cell_list_kernel
+   - Clears spatial partitioning structures.
+   - Prepares cell lists for neighbor search.
+
+9. assign_particles_to_cells_kernel
+   - Assigns each particle to its spatial cell.
+   - Enables efficient local collision detection.
+
+10. particle_contact_kernel
+    - Detects particle-particle contacts.
+    - Computes overlap, contact normal and relative velocity.
+    - Applies spring-damper forces:
+        F_n = (k*delta - gamma*v_n)*n
+    - Computes tangential friction forces and torques.
+
+11. wall_contact_kernel
+    - Detects contacts between particles and vessel walls.
+    - Applies repulsive spring-damper wall forces.
+    - Computes wall-induced torques when needed.
+
+12. lbm_force_coupling_kernel
+    - Applies reaction forces to the fluid.
+    - Ensures momentum conservation:
+        F_fluid = -F_particle
+
+13. update_velocity_kernel
+    - Integrates translational motion:
+        v = v + dt*F/m
+
+14. update_position_kernel
+    - Updates particle positions:
+        x = x + dt*v
+
+15. update_angular_velocity_kernel
+    - Integrates rotational motion:
+        omega = omega + dt*T/I
+
+16. update_orientation_kernel
+    - Updates particle orientation.
+    - Typically integrates quaternions:
+        q_dot = 0.5 * quat(0,omega) * q
+        q = normalize(q + dt*q_dot)
+
+17. update_shape_matrix_kernel
+    - Updates ellipsoid geometry information.
+    - Recomputes:
+        A = R * diag(1/a²,1/b²,1/c²) * R^T
+    - Used for ellipsoid contact detection.
+
+18. output_statistics_kernel
+    - Computes diagnostic quantities:
+        total mass
+        kinetic energy
+        average velocity
+        collision counts
+    - Prepares VTK/CSV output every N timesteps.
+
+
