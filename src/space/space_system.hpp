@@ -1,4 +1,5 @@
 #include "space_data.cuh"
+#include "../msh_utils/mesh_reader.hpp"
 
 /* Space System 
 TODO: Implement space system functionality, initialize space data from the mesh file.
@@ -18,9 +19,9 @@ public:
 private:
     SpaceData space_data;
     
-    void allocateHost();
-    void classifyCellsFromMesh(const char* mesh_file);
-    void detectInletOutlet();
+    void classifyCellsFromMesh(const char* mesh_file, double dx);
     void buildOutletSrc();
-    void copyToDevice();
+    int cellIdFromPosition(const Vec3& p) const;
+    Vec3 cellCenter(int id) const;
+    int findNearestFluidNeighbor(int id) const;
 };

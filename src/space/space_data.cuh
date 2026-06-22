@@ -5,6 +5,12 @@ enum CellType : int {
     OUTLET = 3
 };
 
+struct OutletCell {
+    int id;
+    int neighbor_inside;
+    double nx, ny, nz;
+};
+
 struct SpaceData {
     int nx, ny, nz;        // number of cells in each dimension
     double dx, dt;         // spatial/temporal step
@@ -17,14 +23,11 @@ struct SpaceData {
 
     // inlet/outlet info
     int* h_inlet_ids;
-    int* h_outlet_ids;
-    int* h_outlet_src_ids;
-    
-    int num_inlet_cells;
-    int num_outlet_cells;
+    OutletCell* h_outlet_cells;
+
+    int num_inlet_cells = 0;
+    int num_outlet_cells = 0;
 
     int* d_inlet_ids;
-    int* d_outlet_ids;
-    int* d_outlet_src_ids;
-
+    OutletCell* d_outlet_cells;
 };
