@@ -28,6 +28,8 @@ struct SpaceData {
     int num_inlet_cells = 0;
     int num_outlet_cells = 0;
 
+    Vec3 origin;
+
     int* d_inlet_ids;
     OutletCell* d_outlet_cells;
 };
