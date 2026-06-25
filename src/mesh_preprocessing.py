@@ -192,13 +192,41 @@ def main():
         print("INLET :", np.sum(cell_type == INLET))
         print("OUTLET:", np.sum(cell_type == OUTLET))
 
-        t = tic(f"Writing {output_file}")
-        with open(output_file, "wb") as f:
-            np.array([nx, ny, nz], dtype=np.int32).tofile(f)
-            np.array([dx, dx, dx], dtype=np.float64).tofile(f)
-            origin.astype(np.float64).tofile(f)
-            cell_type.tofile(f)
+        t = tic("Extracting inlet/outlet ids")
+
+        inlet_ids = np.where(cell_type == INLET)[0].astype(np.int32)
+        outlet_ids = np.where(cell_type == OUTLET)[0].astype(np.int32)
+
+        print(f"num_inlets  = {len(inlet_ids)}")
+        print(f"num_outlets = {len(outlet_ids)}")
+
         toc(t)
+
+        t = tic(f"Writing {output_file}")
+
+        with open(output_file, "wb") as f:
+            # Grid size
+            np.array([nx, ny, nz], dtype=np.int32).tofile(f)
+
+            # Grid spacing
+            np.array([dx, dx, dx], dtype=np.float64).tofile(f)
+
+            # Origin
+            origin.astype(np.float64).tofile(f)
+
+            # Cell types
+            cell_type.astype(np.int32).tofile(f)
+
+            # Inlet ids
+            np.array([len(inlet_ids)], dtype=np.int32).tofile(f)
+            inlet_ids.tofile(f)
+
+            # Outlet ids
+            np.array([len(outlet_ids)], dtype=np.int32).tofile(f)
+            outlet_ids.tofile(f)
+
+        toc(t)
+
 
         print(f"\nSaved voxel domain to: {output_file}")
 

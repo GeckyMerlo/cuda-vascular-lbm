@@ -11,17 +11,18 @@ public:
     ~SpaceSystem();
 
     void initialize(const char* mesh_file,
-        double dx, // spatial step
         double dt); // temporal step
     
     const SpaceData& data() const;
 
+    inline int idx(int i, int j, int k)
+    {
+        return k * space_data.nx * space_data.ny + j * space_data.nx + i;
+    }
+
 private:
     SpaceData space_data;
     
-    void classifyCellsFromMesh(const char* mesh_file, double dx);
-    void buildOutletSrc();
-    int cellIdFromPosition(const Vec3& p) const;
-    Vec3 cellCenter(int id) const;
-    int findNearestFluidNeighbor(int id) const;
+    bool loadVoxelDomain(const char* filename);
+    
 };

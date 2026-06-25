@@ -5,31 +5,25 @@ enum CellType : int {
     OUTLET = 3
 };
 
-struct OutletCell {
-    int id;
-    int neighbor_inside;
-    double nx, ny, nz;
-};
-
 struct SpaceData {
     int nx, ny, nz;        // number of cells in each dimension
-    double dx, dt;         // spatial/temporal step
-    double lx, ly, lz;     // physical dimensions of the domain
-    int num_cells;
+    double dx, dy, dz;         // spatial steps
 
     // boundary masks / flags
     CellType* h_cell_type;      // CPU: FLUID, SOLID, INLET, OUTLET
     CellType* d_cell_type;      // GPU copy
 
-    // inlet/outlet info
+    double x0, y0, z0;
+
+    int num_cells;
+
     int* h_inlet_ids;
-    OutletCell* h_outlet_cells;
-
-    int num_inlet_cells = 0;
-    int num_outlet_cells = 0;
-
-    Vec3 origin;
-
+    int* h_outlet_ids;
     int* d_inlet_ids;
-    OutletCell* d_outlet_cells;
+    int* d_outlet_ids;
+
+    int num_inlets;
+    int num_outlets;
+
+    double dt; // temporal step
 };
