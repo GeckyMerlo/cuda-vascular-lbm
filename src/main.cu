@@ -118,6 +118,82 @@ void writeStats(std::ofstream& output, int step, const FluidStats& stats)
         << stats.max_speed << '\n';
 }
 
+std::string paddedStep(int step)
+{
+    std::string s = std::to_string(step);
+    return std::string(6 - std::min<int>(6, s.size()), '0') + s;
+}
+
+void writeFluidVTI(
+    const std::string& filename,
+    const SpaceData& space,
+    const FluidData& fluid
+
+) {
+    std::vector<double> rho(space.num_cells);
+    std::vector<double> ux(space.num_cells);
+    std::vector<double> uy(space.num_cells);
+    std::vector<double> uz(space.num_cells);
+
+    const std::size_t bytes =
+        static_cast<std::size_t>(space.num_cells) * sizeof(double);
+    if (!cudaOk(cudaMemcpy(rho.data(), fluid.density, bytes, cudaMemcpyDeviceToHost),
+                "copy density for VTI") ||
+        !cudaOk(cudaMemcpy(ux.data(), fluid.velocity_x, bytes, cudaMemcpyDeviceToHost),
+                "copy velocity_x for VTI") ||
+        !cudaOk(cudaMemcpy(uy.data(), fluid.velocity_y, bytes, cudaMemcpyDeviceToHost),
+                "copy velocity_y for VTI") ||
+        !cudaOk(cudaMemcpy(uz.data(), fluid.velocity_z, bytes, cudaMemcpyDeviceToHost),
+                "copy velocity_z for VTI")) {
+        throw std::runtime_error("Failed to copy fluid data for VTI");
+    }
+    std::ofstream out(filename);
+
+    if (!out) {
+        throw std::runtime_error("Cannot open VTI file: " + filename);
+    }
+
+    out << "<?xml version=\"1.0\"?>\n";
+    out << "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+    out << "  <ImageData WholeExtent=\"0 " << space.nx
+        << " 0 " << space.ny
+        << " 0 " << space.nz
+        << "\" Origin=\"0 0 0\" Spacing=\""
+        << space.dx << " " << space.dx << " " << space.dx << "\">\n";
+    out << "    <Piece Extent=\"0 " << space.nx
+        << " 0 " << space.ny
+        << " 0 " << space.nz << "\">\n";
+    out << "      <CellData Scalars=\"density\" Vectors=\"velocity\">\n";
+    out << "        <DataArray type=\"Float64\" Name=\"density\" format=\"ascii\">\n";
+    for (int i = 0; i < space.num_cells; ++i) {
+        out << rho[i] << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "        <DataArray type=\"Float64\" Name=\"speed\" format=\"ascii\">\n";
+    for (int i = 0; i < space.num_cells; ++i) {
+        const double speed = std::sqrt(ux[i]*ux[i] + uy[i]*uy[i] + uz[i]*uz[i]);
+        out << speed << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "        <DataArray type=\"Int32\" Name=\"cell_type\" format=\"ascii\">\n";
+
+    for (int i = 0; i < space.num_cells; ++i) {
+        out << static_cast<int>(space.h_cell_type[i]) << " ";
+    }
+
+    out << "\n        </DataArray>\n";
+    out << "        <DataArray type=\"Float64\" Name=\"velocity\" "
+        << "NumberOfComponents=\"3\" format=\"ascii\">\n";
+    for (int i = 0; i < space.num_cells; ++i) {
+        out << ux[i] << " " << uy[i] << " " << uz[i] << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "      </CellData>\n";
+    out << "    </Piece>\n";
+    out << "  </ImageData>\n";
+    out << "</VTKFile>\n";
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -175,6 +251,7 @@ int main(int argc, char** argv)
 
     stats_file << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed\n";
     writeStats(stats_file, 0, computeFluidStats(domain, lbm.data()));
+    writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
 
     for (int step = 1; step <= steps; ++step) {
         lbm.step();
@@ -187,6 +264,9 @@ int main(int argc, char** argv)
         if (step % output_interval == 0 || step == steps) {
             const FluidStats stats = computeFluidStats(domain, lbm.data());
             writeStats(stats_file, step, stats);
+
+            const std::string filename = "output/fluid_" + paddedStep(step) + ".vti";
+            writeFluidVTI(filename, domain, lbm.data());
 
             std::cout
                 << "step " << step
