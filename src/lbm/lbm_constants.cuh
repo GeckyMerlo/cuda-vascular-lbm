@@ -1,6 +1,8 @@
 // lbm_constants.cuh
 #pragma once
 
+#include <cuda_runtime.h>
+
 constexpr int Q = 19;
 
 extern __constant__ int d_cx[Q];

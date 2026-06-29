@@ -1,3 +1,55 @@
+#pragma once
+
+#include "lbm_constants.cuh"
+#include "../space/space_data.cuh"
+
+__global__ void initializeEquilibrium_kernel(
+    double* f,
+    double* f_temp,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const CellType* cell_type,
+    int num_cells,
+    double rho0,
+    double ux0,
+    double uy0,
+    double uz0
+) {
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= num_cells) return;
+
+    if (cell_type[id] == SOLID) {
+        rho[id] = 0.0;
+        ux[id] = 0.0;
+        uy[id] = 0.0;
+        uz[id] = 0.0;
+
+        for (int q = 0; q < Q; q++) {
+            f[id * Q + q] = 0.0;
+            f_temp[id * Q + q] = 0.0;
+        }
+        return;
+    }
+
+    rho[id] = rho0;
+    ux[id] = ux0;
+    uy[id] = uy0;
+    uz[id] = uz0;
+
+    double u2 = ux0*ux0 + uy0*uy0 + uz0*uz0;
+
+    for (int q = 0; q < Q; q++) {
+        double cu = d_cx[q]*ux0 + d_cy[q]*uy0 + d_cz[q]*uz0;
+        double feq = d_w[q] * rho0 *
+            (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
+
+        f[id * Q + q] = feq;
+        f_temp[id * Q + q] = feq;
+    }
+}
+
 __global__ void collide_kernel(
     double* f,
     double* f_temp,
@@ -5,7 +57,7 @@ __global__ void collide_kernel(
     const double* ux,
     const double* uy,
     const double* uz,
-    const int* cell_type,
+    const CellType* cell_type,
     int num_cells,
     double omega
 ) {
@@ -22,7 +74,7 @@ __global__ void collide_kernel(
                 local_uy*local_uy +
                 local_uz*local_uz;
 
-    for (int q = 0; q < 19; q++) {
+    for (int q = 0; q < Q; q++) {
         double cu = d_cx[q]*local_ux +
                     d_cy[q]*local_uy +
                     d_cz[q]*local_uz;
@@ -30,7 +82,7 @@ __global__ void collide_kernel(
         double feq = d_w[q] * local_rho *
             (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
 
-        int idx = id * 19 + q;
+        int idx = id * Q + q;
 
         f_temp[idx] = f[idx] - omega * (f[idx] - feq);
     }
@@ -42,7 +94,7 @@ __global__ void computeMacroscopicVariables_kernel(
     double* ux,
     double* uy,
     double* uz,
-    const int* cell_type,
+    const CellType* cell_type,
     int num_cells
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -54,8 +106,8 @@ __global__ void computeMacroscopicVariables_kernel(
     double local_uy = 0.0;
     double local_uz = 0.0;
 
-    for (int q = 0; q < 19; q++) {
-        int idx = id * 19 + q;
+    for (int q = 0; q < Q; q++) {
+        int idx = id * Q + q;
         double f_val = f[idx];
         local_rho += f_val;
         local_ux += f_val * d_cx[q];
@@ -79,53 +131,61 @@ __global__ void computeMacroscopicVariables_kernel(
 __global__ void stream_kernel(
     double* f,
     const double* f_temp,
-    const int* cell_type,
+    const CellType* cell_type,
     int num_cells,
     int nx, int ny, int nz
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
+    if (cell_type[id] == SOLID) return;
 
     int z = id / (nx * ny);
     int y = (id % (nx * ny)) / nx;
     int x = id % nx;
 
-    for (int q = 0; q < 19; q++) {
+    for (int q = 0; q < Q; q++) {
         // Compute source cell coordinates for every direction q
-        int src_x = (x - d_cx[q] + nx) % nx;
-        int src_y = (y - d_cy[q] + ny) % ny;
-        int src_z = (z - d_cz[q] + nz) % nz;
+        int src_x = x - d_cx[q];
+        int src_y = y - d_cy[q];
+        int src_z = z - d_cz[q];
+
+        if (src_x < 0 || src_x >= nx ||
+            src_y < 0 || src_y >= ny ||
+            src_z < 0 || src_z >= nz) {
+            f[id * Q + q] = f_temp[id * Q + d_opposite[q]];
+            continue;
+        }
 
         int src_id = src_z * (nx * ny) + src_y * nx + src_x;
 
         if (cell_type[src_id] != SOLID) {
-            f[id * 19 + q] = f_temp[src_id * 19 + q];
+            f[id * Q + q] = f_temp[src_id * Q + q];
         } else {
-            f[id * 19 + q] = f_temp[id * 19 + q];
+            f[id * Q + q] = f_temp[id * Q + d_opposite[q]];
         }
     }
 }
 
 __global__ void wall_bounce_back_kernel(
     double* f,
-    const int* cell_type,
+    const CellType* cell_type,
     int num_cells
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
 
     if (cell_type[id] == SOLID) {
-        double tmp[19];
+        double tmp[Q];
 
         // Load current distribution functions into temporary array
-        for (int q = 0; q < 19; q++) {
-            tmp[q] = f[id * 19 + q];
+        for (int q = 0; q < Q; q++) {
+            tmp[q] = f[id * Q + q];
         }
 
         // Bounce-back: swap distribution functions with their opposites
-        for (int q = 0; q < 19; q++) {
+        for (int q = 0; q < Q; q++) {
             int opposite_q = d_opposite[q];
-            f[id * 19 + q] = tmp[opposite_q];
+            f[id * Q + q] = tmp[opposite_q];
         }
     }else if (cell_type[id] == INLET) {
 
@@ -140,10 +200,12 @@ __global__ void inlet_kernel(
     double* ux,
     double* uy,
     double* uz,
-    const int* cell_type,
+    const CellType* cell_type,
     int num_cells,
     double rho0,
-    double u_in
+    double ux_in,
+    double uy_in,
+    double uz_in
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
@@ -151,19 +213,19 @@ __global__ void inlet_kernel(
     if (cell_type[id] != INLET) return;
 
     rho[id] = rho0;
-    ux[id] = u_in;
-    uy[id] = 0.0;
-    uz[id] = 0.0;
+    ux[id] = ux_in;
+    uy[id] = uy_in;
+    uz[id] = uz_in;
 
-    double u2 = u_in * u_in;
+    double u2 = ux_in*ux_in + uy_in*uy_in + uz_in*uz_in;
 
-    for (int q = 0; q < 19; q++) {
-        double cu = d_cx[q] * u_in;
+    for (int q = 0; q < Q; q++) {
+        double cu = d_cx[q]*ux_in + d_cy[q]*uy_in + d_cz[q]*uz_in;
 
         double feq = d_w[q] * rho0 *
             (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
 
-        f[id * 19 + q] = feq;
+        f[id * Q + q] = feq;
     }
 }
 
@@ -183,8 +245,8 @@ __global__ void outlet_kernel(
     int id     = outlet_ids[k];
     int src_id = outlet_src_ids[k];
 
-    for (int q = 0; q < 19; q++) {
-        f[id * 19 + q] = f[src_id * 19 + q];
+    for (int q = 0; q < Q; q++) {
+        f[id * Q + q] = f[src_id * Q + q];
     }
 
     rho[id] = rho[src_id];

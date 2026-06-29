@@ -1,3 +1,5 @@
+#pragma once
+
 // particle_kernels.cuh
 // Velocity update kernel for particle system simulation using CUDA.
 // Integrator: Velocity Verlet method.

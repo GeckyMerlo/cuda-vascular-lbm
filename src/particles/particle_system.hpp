@@ -7,6 +7,9 @@ public:
     ParticleSystem();
     ~ParticleSystem();
 
+    ParticleSystem(const ParticleSystem&) = delete;
+    ParticleSystem& operator=(const ParticleSystem&) = delete;
+
     void allocate(int n);
     void initialize(ParticleData& h_particles);
     void free();

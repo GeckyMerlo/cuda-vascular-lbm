@@ -1,12 +1,16 @@
+#pragma once
+
 #include "fluid_data.cuh"
 #include "../space/space_data.cuh"
-#include "lbm_kernels.cuh"
 #include "lbm_constants.cuh"
 
 class LBMSystem {
 public:
     LBMSystem(const SpaceData& space_data, double dt, double tau);
     ~LBMSystem();
+
+    LBMSystem(const LBMSystem&) = delete;
+    LBMSystem& operator=(const LBMSystem&) = delete;
 
     void step();
 
@@ -25,6 +29,6 @@ private:
     void stream();
     void applyBoundaryConditions();
     void computeMacroscopicVariables();
+    void initializeEquilibrium();
 
 };
-

@@ -1,5 +1,7 @@
 #include "lbm_system.hpp"
-#include <algorithm> 
+#include "lbm_kernels.cuh"
+
+#include <cuda_runtime.h>
 
 LBMSystem::LBMSystem(const SpaceData& space_data, double dt, double tau)
     : dt(dt),
@@ -9,6 +11,8 @@ LBMSystem::LBMSystem(const SpaceData& space_data, double dt, double tau)
       space(space_data)
 {
     initLBMConstants();
+    initializeEquilibrium();
+    computeMacroscopicVariables();
 }
 
 LBMSystem::~LBMSystem() {
@@ -16,10 +20,10 @@ LBMSystem::~LBMSystem() {
 }
 
 void LBMSystem::step() {
-    computeMacroscopicVariables();
     collide();
     stream();
     applyBoundaryConditions();
+    computeMacroscopicVariables();
 }
 
 FluidData& LBMSystem::data() {
@@ -33,6 +37,7 @@ const FluidData& LBMSystem::data() const {
 void LBMSystem::collide() {
     int block = 256;
     int grid = (space.num_cells + block - 1) / block;
+    if (grid <= 0) return;
 
     collide_kernel<<<grid, block>>>(
         fluid.f,
@@ -50,6 +55,7 @@ void LBMSystem::collide() {
 void LBMSystem::stream() {
     int block = 256;
     int grid = (space.num_cells + block - 1) / block;
+    if (grid <= 0) return;
 
     stream_kernel<<<grid, block>>>(
         fluid.f,
@@ -66,12 +72,7 @@ void LBMSystem::applyBoundaryConditions() {
     int block = 256;
 
     int grid_all = (space.num_cells + block - 1) / block;
-
-    wall_bounce_back_kernel<<<grid_all, block>>>(
-        fluid.f,
-        space.d_cell_type,
-        space.num_cells
-    );
+    if (grid_all <= 0) return;
 
     inlet_kernel<<<grid_all, block>>>(
         fluid.f,
@@ -81,12 +82,14 @@ void LBMSystem::applyBoundaryConditions() {
         fluid.velocity_z,
         space.d_cell_type,
         space.num_cells,
-        // Inlet parameters (can be adjusted as needed) <-- TODO: Make these configurable
         1.0,      // rho0
-        0.05      // u_in
+        0.0,      // ux
+        0.0,      // uy
+        0.05      // uz, vessel axis in vena_cilindrica.geo
     );
 
     int grid_outlet = (space.num_outlet_cells + block - 1) / block;
+    if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
     outlet_kernel<<<grid_outlet, block>>>(
         fluid.f,
@@ -103,6 +106,7 @@ void LBMSystem::applyBoundaryConditions() {
 void LBMSystem::computeMacroscopicVariables() {
     int block = 256;
     int grid = (space.num_cells + block - 1) / block;
+    if (grid <= 0) return;
 
     ::computeMacroscopicVariables_kernel<<<grid, block>>>(
         fluid.f,
@@ -112,12 +116,23 @@ void LBMSystem::computeMacroscopicVariables() {
     );
 }
 
+void LBMSystem::initializeEquilibrium() {
+    int block = 256;
+    int grid = (space.num_cells + block - 1) / block;
+    if (grid <= 0) return;
 
-
-
-
-
-
-
-
-
+    initializeEquilibrium_kernel<<<grid, block>>>(
+        fluid.f,
+        fluid.f_temp,
+        fluid.density,
+        fluid.velocity_x,
+        fluid.velocity_y,
+        fluid.velocity_z,
+        space.d_cell_type,
+        space.num_cells,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+    );
+}

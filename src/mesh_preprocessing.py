@@ -3,6 +3,7 @@ import trimesh
 import numpy as np
 from tqdm import tqdm
 from time import perf_counter
+from pathlib import Path
 
 # Cell types
 FLUID  = 0
@@ -68,8 +69,9 @@ def get_physical_surface_faces(tag_to_idx):
 
 
 def main():
-    geo_file = "../msh/vena_cilindrica.geo"
-    output_file = "voxel_domain.bin"
+    project_root = Path(__file__).resolve().parents[1]
+    geo_file = project_root / "msh" / "vena_cilindrica.geo"
+    output_file = project_root / "msh" / "voxel_domain.bin"
 
     dx = 0.25          # start with 0.5, then try 0.25, then 0.1
     batch_z = 2      # number of z-slices processed at once
@@ -78,7 +80,7 @@ def main():
 
     try:
         t = tic("Reading Gmsh geometry")
-        gmsh.open(geo_file)
+        gmsh.open(str(geo_file))
         gmsh.model.occ.synchronize()
         toc(t)
 

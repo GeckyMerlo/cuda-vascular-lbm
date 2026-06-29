@@ -1,17 +1,16 @@
-#include "space_data.cuh"
-#include "../msh_utils/mesh_reader.hpp"
+#pragma once
 
-/* Space System 
-TODO: Implement space system functionality, initialize space data from the mesh file.
-*/
+#include "space_data.cuh"
 
 class SpaceSystem {
 public: 
     SpaceSystem();
     ~SpaceSystem();
 
-    void initialize(const char* mesh_file,
-        double dt); // temporal step
+    SpaceSystem(const SpaceSystem&) = delete;
+    SpaceSystem& operator=(const SpaceSystem&) = delete;
+
+    bool initialize(const char* mesh_file, double dt);
     
     const SpaceData& data() const;
 
@@ -24,5 +23,7 @@ private:
     SpaceData space_data;
     
     bool loadVoxelDomain(const char* filename);
+    bool buildBoundaryIdLists();
+    bool buildOutletSourceIds();
     
 };

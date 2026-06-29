@@ -1,5 +1,7 @@
+#pragma once
+
 #include "../particles/particle_system.hpp"
-#include "../lbm/fluid_data.hpp"
+#include "../lbm/fluid_data.cuh"
 
 class ForceModel {
 public:
