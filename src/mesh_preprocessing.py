@@ -88,6 +88,10 @@ def main():
         gmsh.model.mesh.generate(3)
         toc(t)
 
+        vtk_file = project_root / "msh" / "vena_cilindrica.vtk"
+        gmsh.write(str(vtk_file))
+        print(f"Mesh saved to {vtk_file}")
+
         t = tic("Extracting nodes and physical surfaces")
         vertices, tag_to_idx = get_nodes()
         groups = get_physical_surface_faces(tag_to_idx)
