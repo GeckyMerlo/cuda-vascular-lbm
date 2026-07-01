@@ -21,8 +21,10 @@ LBMSystem::~LBMSystem() {
 
 void LBMSystem::step() {
     collide();
+    computeOutlet();
     stream();
-    applyBoundaryConditions();
+    computeInlet();
+    //applyBoundaryConditions();
     computeMacroscopicVariables();
 }
 
@@ -90,7 +92,7 @@ void LBMSystem::applyBoundaryConditions() {
         space.ny,
         space.nz
     );
-    
+
 
     int grid_outlet = (space.num_outlet_cells + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
@@ -138,5 +140,47 @@ void LBMSystem::initializeEquilibrium() {
         0.0,
         0.0,
         0.0
+    );
+}
+
+void LBMSystem::computeOutlet() {
+    int block = 256;
+
+    int grid_outlet = (space.num_outlet_cells + block - 1) / block;
+    if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
+
+    outlet_kernel<<<grid_outlet, block>>>(
+        fluid.f,
+        fluid.density,
+        fluid.velocity_x,
+        fluid.velocity_y,
+        fluid.velocity_z,
+        space.d_outlet_ids,
+        space.d_outlet_src_ids,
+        space.num_outlet_cells
+    );
+}
+
+void LBMSystem::computeInlet() {
+    int block = 256;
+
+    int grid_all = (space.num_cells + block - 1) / block;
+    if (grid_all <= 0) return;
+
+    inlet_kernel<<<grid_all, block>>>(
+        fluid.f,
+        fluid.density,
+        fluid.velocity_x,
+        fluid.velocity_y,
+        fluid.velocity_z,
+        space.d_cell_type,
+        space.num_cells,
+        1.0,      // rho0
+        0.0,      // ux
+        0.0,      // uy
+        0.0075 ,     // uz, vessel axis in vena_cilindrica.geo, <-- value given consideri fisic velocity of 0,15 m/s, voxel 0.2 mm, delta_t 0.00001 s
+        space.nx,
+        space.ny,
+        space.nz
     );
 }

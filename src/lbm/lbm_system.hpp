@@ -30,5 +30,7 @@ private:
     void applyBoundaryConditions();
     void computeMacroscopicVariables();
     void initializeEquilibrium();
+    void computeInlet();
+    void computeOutlet();
 
 };
