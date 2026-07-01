@@ -205,7 +205,8 @@ __global__ void inlet_kernel(
     double rho0,
     double ux_in,
     double uy_in,
-    double uz_in
+    double uz_in,
+    int nx, int ny, int nz
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
