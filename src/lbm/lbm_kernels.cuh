@@ -279,10 +279,11 @@ __global__ void outlet_kernel(
     double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
     
     for (int q = 0; q < Q; q++) {
-        double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
+        /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
 
         f[id * Q + q] = d_w[q] * rho[id] *
-            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
+            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);*/
+        f[id * Q + q] = f[src_id * Q + q];
     }
 }
 
