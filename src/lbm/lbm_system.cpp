@@ -85,7 +85,10 @@ void LBMSystem::applyBoundaryConditions() {
         1.0,      // rho0
         0.0,      // ux
         0.0,      // uy
-        0.05      // uz, vessel axis in vena_cilindrica.geo
+        0.05      // uz, vessel axis in vena_cilindrica.geo,
+        space.nx,
+        space.ny,
+        space.nz
     );
 
     int grid_outlet = (space.num_outlet_cells + block - 1) / block;
