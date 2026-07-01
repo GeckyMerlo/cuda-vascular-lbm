@@ -22,6 +22,14 @@ struct FluidStats {
     double avg_uz = 0.0;
     double avg_speed = 0.0;
     double max_speed = 0.0;
+    double avg_density_inlet = 0.0;
+    double avg_density_outlet = 0.0;
+    double avg_uz_inlet = 0.0;
+    double avg_uz_outlet = 0.0;
+    double mass_flux_in = 0.0;
+    double mass_flux_out = 0.0;
+    int inlet_cells = 0;
+    int outlet_cells = 0;
 };
 
 bool cudaOk(cudaError_t result, const char* operation)
@@ -91,6 +99,24 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
         stats.avg_uz += uz[static_cast<std::size_t>(id)];
         stats.avg_speed += speed;
         stats.max_speed = std::max(stats.max_speed, speed);
+
+        const auto type = space.h_cell_type[id];
+        const double r = rho[id];
+        const double uz_id = uz[id];
+
+        if (type == INLET) {
+            stats.inlet_cells++;
+            stats.avg_density_inlet += r;
+            stats.avg_uz_inlet += uz_id;
+            stats.mass_flux_in += r * uz_id;
+        }
+
+        if (type == OUTLET) {
+            stats.outlet_cells++;
+            stats.avg_density_outlet += r;
+            stats.avg_uz_outlet += uz_id;
+            stats.mass_flux_out += r * uz_id;
+}
     }
 
     if (stats.active_cells > 0) {
@@ -101,6 +127,16 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
         stats.avg_uz *= inv_cells;
         stats.avg_speed *= inv_cells;
     }
+
+    if (stats.inlet_cells > 0) {
+    stats.avg_density_inlet /= stats.inlet_cells;
+    stats.avg_uz_inlet /= stats.inlet_cells;
+    }
+
+    if (stats.outlet_cells > 0) {
+        stats.avg_density_outlet /= stats.outlet_cells;
+        stats.avg_uz_outlet /= stats.outlet_cells;
+}
 
     return stats;
 }
@@ -115,7 +151,13 @@ void writeStats(std::ofstream& output, int step, const FluidStats& stats)
         << stats.avg_uy << ','
         << stats.avg_uz << ','
         << stats.avg_speed << ','
-        << stats.max_speed << '\n';
+        << stats.max_speed << '\n'
+        << stats.avg_density_inlet << ','
+        << stats.avg_density_outlet << ','
+        << stats.avg_uz_inlet << ','
+        << stats.avg_uz_outlet << ','
+        << stats.mass_flux_in << ','
+        << stats.mass_flux_out << '\n';
 }
 
 std::string paddedStep(int step)
