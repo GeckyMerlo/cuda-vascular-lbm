@@ -217,9 +217,34 @@ __global__ void inlet_kernel(
     uy[id] = uy_in;
     uz[id] = uz_in;
 
+    int z = id / (nx * ny);
+    int y = (id % (nx * ny)) / nx;
+    int x = id % nx;
+
     double u2 = ux_in*ux_in + uy_in*uy_in + uz_in*uz_in;
 
     for (int q = 0; q < Q; q++) {
+        
+        bool missing = false; // <- Flag to check if a direction is missing, we don't want to apply conditions to directions that are not missing
+
+        int src_x = x - d_cx[q];
+        int src_y = y - d_cy[q];
+        int src_z = z - d_cz[q];
+
+        // Check if the source cell is out of bounds or solid
+        if (src_x < 0 || src_x >= nx ||
+            src_y < 0 || src_y >= ny ||
+            src_z < 0 || src_z >= nz) {
+            missing = true;
+        } else {
+            int src_id = src_z * (nx * ny) + src_y * nx + src_x;
+            if (cell_type[src_id] == SOLID) {
+                missing = true;
+            }
+        }
+
+        if (!missing) continue; // Skip directions that are not missing
+
         double cu = d_cx[q]*ux_in + d_cy[q]*uy_in + d_cz[q]*uz_in;
 
         double feq = d_w[q] * rho0 *
@@ -245,13 +270,18 @@ __global__ void outlet_kernel(
     int id     = outlet_ids[k];
     int src_id = outlet_src_ids[k];
 
-    for (int q = 0; q < Q; q++) {
-        f[id * Q + q] = f[src_id * Q + q];
-    }
-
     rho[id] = rho[src_id];
     ux[id]  = ux[src_id];
     uy[id]  = uy[src_id];
     uz[id]  = uz[src_id];
+
+    double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
+    
+    for (int q = 0; q < Q; q++) {
+        double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
+
+        double f[id * Q + q] = d_w[q] * rho[id] *
+            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
+    }
 }
 
