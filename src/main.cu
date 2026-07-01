@@ -151,7 +151,7 @@ void writeStats(std::ofstream& output, int step, const FluidStats& stats)
         << stats.avg_uy << ','
         << stats.avg_uz << ','
         << stats.avg_speed << ','
-        << stats.max_speed << '\n'
+        << stats.max_speed << ','
         << stats.avg_density_inlet << ','
         << stats.avg_density_outlet << ','
         << stats.avg_uz_inlet << ','
