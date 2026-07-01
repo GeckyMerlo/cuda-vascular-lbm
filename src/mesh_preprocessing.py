@@ -148,6 +148,7 @@ def main():
         toc(t)
 
         cell_type = np.full(total_voxels, SOLID, dtype=np.int32)
+        normal = np.zeros((total_voxels, 3), dtype=np.float64)
 
         tol = 1.5 * dx
 
@@ -173,13 +174,22 @@ def main():
             inlet_dist = inlet_mesh.nearest.signed_distance(centers)
             outlet_dist = outlet_mesh.nearest.signed_distance(centers)
 
-            local_type[
-                (local_type == FLUID) & (np.abs(inlet_dist) < tol)
-            ] = INLET
+            is_inlet = (local_type == FLUID) & (np.abs(inlet_dist) < tol)
+            is_outlet = (local_type == FLUID) & (np.abs(outlet_dist) < tol)
 
-            local_type[
-                (local_type == FLUID) & (np.abs(outlet_dist) < tol)
-            ] = OUTLET
+            local_type[is_inlet] = INLET
+            local_type[is_outlet] = OUTLET
+
+            _, _, inlet_tri_id = inlet_mesh.nearest.on_surface(centers)
+            _, _, outlet_tri_id = outlet_mesh.nearest.on_surface(centers)
+
+            inlet_normals = inlet_mesh.face_normals[inlet_tri_id]
+            outlet_normals = outlet_mesh.face_normals[outlet_tri_id]
+
+            local_normal = np.zeros((len(centers), 3))
+
+            local_normal[is_inlet] = inlet_normals[is_inlet]
+            local_normal[is_outlet] = outlet_normals[is_outlet]
 
             for local_k, global_k in enumerate(range(k0, k1)):
                 local_start = local_k * nx * ny
@@ -189,6 +199,7 @@ def main():
                 global_end = global_start + nx * ny
 
                 cell_type[global_start:global_end] = local_type[local_start:local_end]
+                normal[global_start:global_end] = local_normal[local_start:local_end]
 
         toc(t)
 
@@ -206,6 +217,10 @@ def main():
         print(f"num_inlets  = {len(inlet_ids)}")
         print(f"num_outlets = {len(outlet_ids)}")
 
+        print("mean inlet normal :", normal[inlet_ids].mean(axis=0))
+        print("mean outlet normal:", normal[outlet_ids].mean(axis=0))
+
+
         toc(t)
 
         t = tic(f"Writing {output_file}")
@@ -222,6 +237,9 @@ def main():
 
             # Cell types
             cell_type.astype(np.int32).tofile(f)
+
+            #Normals
+            normal.astype(np.float64).tofile(f)
 
             # Inlet ids
             np.array([len(inlet_ids)], dtype=np.int32).tofile(f)

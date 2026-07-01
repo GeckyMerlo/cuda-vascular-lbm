@@ -107,16 +107,16 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
         if (type == INLET) {
             stats.inlet_cells++;
             stats.avg_density_inlet += r;
-            stats.avg_uz_inlet += uz_id;
-            stats.mass_flux_in += r * uz_id;
+            stats.avg_uz_inlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
+            stats.mass_flux_in += r * ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];;
         }
 
         if (type == OUTLET) {
             stats.outlet_cells++;
             stats.avg_density_outlet += r;
-            stats.avg_uz_outlet += uz_id;
-            stats.mass_flux_out += r * uz_id;
-}
+            stats.avg_uz_outlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
+            stats.mass_flux_out += r * ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];;
+        }
     }
 
     if (stats.active_cells > 0) {
@@ -291,7 +291,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    stats_file << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed\n";
+    stats_file << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,mass_flux_in,mass_flux_out\n";
     writeStats(stats_file, 0, computeFluidStats(domain, lbm.data()));
     writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
 

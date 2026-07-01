@@ -222,6 +222,31 @@ bool SpaceSystem::loadVoxelDomain(const char* filename)
         return false;
     }
 
+    const std::size_t normal_bytes =
+    static_cast<std::size_t>(space_data.num_cells) *
+    3 * sizeof(double);
+
+    if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
+                            normal_bytes),
+                "cudaMallocHost(h_normals)")) {
+        return false;
+    }
+
+    if (!readBytes(file, space_data.h_normals, normal_bytes)) {
+        return false;
+    }
+
+    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals),
+                        normal_bytes),
+                "cudaMalloc(d_normals)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals,
+                        space_data.h_normals,
+                        normal_bytes,
+                        cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals)")) {
+        return false;
+    }
+
     int explicit_inlet_count = 0;
     if (readValue(file, explicit_inlet_count)) {
         if (explicit_inlet_count < 0) {

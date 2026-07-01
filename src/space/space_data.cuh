@@ -31,4 +31,7 @@ struct SpaceData {
     int num_outlet_cells = 0;
 
     double dt = 0.0; // temporal step
+
+    double* h_normals = nullptr;   // [num_cells][3]
+    double* d_normals = nullptr;
 };
