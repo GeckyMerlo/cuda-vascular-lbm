@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 from time import perf_counter
 from pathlib import Path
+from collections import deque
 
 # Cell types
 FLUID  = 0
@@ -66,6 +67,46 @@ def get_physical_surface_faces(tag_to_idx):
         print(f"{name}: {len(faces)} triangles")
 
     return groups
+
+def flood_fill_boundary_limited(cell_type, seed_ids, allowed_mask, new_type, nx, ny, nz):
+    visited = np.zeros_like(cell_type, dtype=bool)
+    q = deque()
+
+    for sid in seed_ids:
+        if allowed_mask[sid]:
+            visited[sid] = True
+            q.append(sid)
+
+    dirs = [
+        (1,0,0), (-1,0,0),
+        (0,1,0), (0,-1,0),
+        (0,0,1), (0,0,-1)
+    ]
+
+    while q:
+        id = q.popleft()
+        cell_type[id] = new_type
+
+        z = id // (nx * ny)
+        y = (id % (nx * ny)) // nx
+        x = id % nx
+
+        for dz, dy, dx_ in dirs:
+            zz = z + dz
+            yy = y + dy
+            xx = x + dx_
+
+            if not (0 <= zz < nz and 0 <= yy < ny and 0 <= xx < nx):
+                continue
+
+            nid = zz * (nx * ny) + yy * nx + xx
+
+            if visited[nid]:
+                continue
+
+            if allowed_mask[nid]:
+                visited[nid] = True
+                q.append(nid)
 
 
 def main():
@@ -150,9 +191,17 @@ def main():
         cell_type = np.full(total_voxels, SOLID, dtype=np.int32)
         normal = np.zeros((total_voxels, 3), dtype=np.float64)
 
-        tol = 1.5 * dx
-
         t = tic("Voxelizing geometry")
+
+        tol = 1.0 * dx
+
+        mean_inlet_normal = inlet_mesh.face_normals.mean(axis=0)
+        mean_inlet_normal /= np.linalg.norm(mean_inlet_normal)
+
+        mean_outlet_normal = outlet_mesh.face_normals.mean(axis=0)
+        mean_outlet_normal /= np.linalg.norm(mean_outlet_normal)
+
+        normal_threshold = 0.7
 
         for k0 in tqdm(range(0, nz, batch_z), desc="Voxel slices"):
             k1 = min(k0 + batch_z, nz)
@@ -171,23 +220,35 @@ def main():
             local_type = np.full(len(centers), SOLID, dtype=np.int32)
             local_type[inside] = FLUID
 
-            inlet_dist = inlet_mesh.nearest.signed_distance(centers)
-            outlet_dist = outlet_mesh.nearest.signed_distance(centers)
-
-            is_inlet = (local_type == FLUID) & (np.abs(inlet_dist) < tol)
-            is_outlet = (local_type == FLUID) & (np.abs(outlet_dist) < tol)
-
-            local_type[is_inlet] = INLET
-            local_type[is_outlet] = OUTLET
-
-            _, _, inlet_tri_id = inlet_mesh.nearest.on_surface(centers)
-            _, _, outlet_tri_id = outlet_mesh.nearest.on_surface(centers)
+            _, inlet_dist, inlet_tri_id = inlet_mesh.nearest.on_surface(centers)
+            _, outlet_dist, outlet_tri_id = outlet_mesh.nearest.on_surface(centers)
 
             inlet_normals = inlet_mesh.face_normals[inlet_tri_id]
             outlet_normals = outlet_mesh.face_normals[outlet_tri_id]
 
-            local_normal = np.zeros((len(centers), 3))
+            inlet_dot = inlet_normals @ mean_inlet_normal
+            outlet_dot = outlet_normals @ mean_outlet_normal
 
+            is_inlet = (
+                (local_type == FLUID) &
+                (inlet_dist < tol) &
+                (inlet_dot > normal_threshold)
+            )
+
+            is_outlet = (
+                (local_type == FLUID) &
+                (outlet_dist < tol) &
+                (outlet_dot > normal_threshold)
+            )
+
+            both = is_inlet & is_outlet
+            is_inlet[both] = False
+            is_outlet[both] = False
+
+            local_type[is_inlet] = INLET
+            local_type[is_outlet] = OUTLET
+
+            local_normal = np.zeros((len(centers), 3))
             local_normal[is_inlet] = inlet_normals[is_inlet]
             local_normal[is_outlet] = outlet_normals[is_outlet]
 
@@ -201,6 +262,42 @@ def main():
                 cell_type[global_start:global_end] = local_type[local_start:local_end]
                 normal[global_start:global_end] = local_normal[local_start:local_end]
 
+        toc(t)
+
+        t = tic("Flood-fill of the boundaries")
+
+        cell_type_3d = cell_type.reshape((nz, ny, nx))
+
+        inlet_allowed = np.zeros_like(cell_type, dtype=bool)
+        outlet_allowed = np.zeros_like(cell_type, dtype=bool)
+
+        inlet_slices = np.where(np.any(cell_type_3d == INLET, axis=(1,2)))[0]
+        outlet_slices = np.where(np.any(cell_type_3d == OUTLET, axis=(1,2)))[0]
+
+        for z in inlet_slices:
+            ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
+            inlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == INLET)
+
+        for z in outlet_slices:
+            ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
+            outlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == OUTLET)
+
+        flood_fill_boundary_limited(
+            cell_type,
+            np.where(cell_type == INLET)[0],
+            inlet_allowed,
+            INLET,
+            nx, ny, nz
+        )
+
+        flood_fill_boundary_limited(
+            cell_type,
+            np.where(cell_type == OUTLET)[0],
+            outlet_allowed,
+            OUTLET,
+            nx, ny, nz
+        )
+        
         toc(t)
 
         print("\nCell statistics:")
@@ -253,6 +350,82 @@ def main():
 
 
         print(f"\nSaved voxel domain to: {output_file}")
+
+        print("\n=== Cross sections along z ===")
+
+        cell_type_3d = cell_type.reshape((nz, ny, nx))
+
+        for z in range(nz):
+            n_fluid  = np.sum(cell_type_3d[z] == FLUID)
+            n_solid  = np.sum(cell_type_3d[z] == SOLID)
+            n_inlet  = np.sum(cell_type_3d[z] == INLET)
+            n_outlet = np.sum(cell_type_3d[z] == OUTLET)
+
+            if n_fluid or n_inlet or n_outlet:
+                print(
+                    f"z={z:3d}  "
+                    f"FLUID={n_fluid:4d}  "
+                    f"INLET={n_inlet:4d}  "
+                    f"OUTLET={n_outlet:4d}  "
+                    f"SOLID={n_solid:4d}"
+                )
+
+        print("\n=== Connectivity check ===")
+
+        cell_type_3d = cell_type.reshape((nz, ny, nx))
+
+        for z in range(nz):
+            section = cell_type_3d[z]
+
+            has_fluid = np.any(section == FLUID)
+            has_inlet = np.any(section == INLET)
+            has_outlet = np.any(section == OUTLET)
+
+            if has_fluid or has_inlet or has_outlet:
+                print(
+                    f"slice {z:3d}: "
+                    f"fluid={has_fluid} "
+                    f"inlet={has_inlet} "
+                    f"outlet={has_outlet}"
+                )
+
+        print("\n=== Outlet adjacency ===")
+
+        cell_type_3d = cell_type.reshape((nz, ny, nx))
+
+        bad = 0
+        good = 0
+
+        for oid in outlet_ids:
+            z = oid // (nx * ny)
+            y = (oid % (nx * ny)) // nx
+            x = oid % nx
+
+            neigh = []
+            for dz, dy, dx_ in [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]:
+                zz, yy, xx = z+dz, y+dy, x+dx_
+                if 0 <= zz < nz and 0 <= yy < ny and 0 <= xx < nx:
+                    neigh.append(cell_type_3d[zz, yy, xx])
+
+            n_fluid = sum(t == FLUID for t in neigh)
+
+            if n_fluid == 0:
+                bad += 1
+            else:
+                good += 1
+
+        print("outlet with fluid neighbor:", good)
+        print("outlet isolated:", bad)
+
+        print("\n=== Last slices detail ===")
+        for z in range(nz-5, nz):
+            section = cell_type_3d[z]
+            print(
+                z,
+                "FLUID", np.sum(section == FLUID),
+                "OUTLET", np.sum(section == OUTLET),
+                "SOLID", np.sum(section == SOLID)
+            )
 
     finally:
         gmsh.finalize()
