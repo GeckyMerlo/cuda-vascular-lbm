@@ -20,15 +20,14 @@ LBMSystem::~LBMSystem() {
 }
 
 void LBMSystem::step() {
-    //collide();
-    computeOutlet();
-    
+    collide();
+    /* TEST DI STREAM
     cudaMemcpy(fluid.f_temp, fluid.f, space.num_cells * Q * sizeof(double),
            cudaMemcpyDeviceToDevice);
-    
+    */
     stream();
     computeInlet();
-    
+    computeOutlet();
     //applyBoundaryConditions();
     computeMacroscopicVariables();
 }
