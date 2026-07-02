@@ -21,6 +21,7 @@ LBMSystem::~LBMSystem() {
 
 void LBMSystem::step() {
     collide();
+    copy_boundary_to_temp();
     /* TEST DI STREAM
     cudaMemcpy(fluid.f_temp, fluid.f, space.num_cells * Q * sizeof(double),
            cudaMemcpyDeviceToDevice);
@@ -188,3 +189,21 @@ void LBMSystem::computeInlet() {
         space.nz
     );
 }
+
+void LBMSystem::copy_boundary_to_temp() {
+    int block = 256;
+
+    int grid_all = (space.num_cells + block - 1) / block;
+    if (grid_all <= 0) return;
+
+    copy_boundary_to_temp_kernel<<<grid_all, block>>>(
+        fluid.f,
+        fluid.f_temp,
+        space.d_cell_type,
+        space.num_cells
+    );
+}
+
+
+
+

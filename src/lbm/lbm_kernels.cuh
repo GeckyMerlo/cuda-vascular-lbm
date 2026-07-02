@@ -63,7 +63,7 @@ __global__ void collide_kernel(
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
-    if (cell_type[id] == SOLID) return;
+    if (cell_type[id] != FLUID) return;
 
     double local_rho = rho[id];
     double local_ux  = ux[id];
@@ -289,3 +289,18 @@ __global__ void outlet_kernel(
     }
 }
 
+__global__ void copy_boundary_to_temp_kernel(
+    double* f_temp,
+    const double* f,
+    const CellType* cell_type,
+    int num_cells
+) {
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= num_cells) return;
+
+    if (cell_type[id] != FLUID) {
+        for (int q = 0; q < Q; q++) {
+            f_temp[id * Q + q] = f[id * Q + q];
+        }
+    }
+}
