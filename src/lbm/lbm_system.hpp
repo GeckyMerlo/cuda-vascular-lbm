@@ -32,5 +32,6 @@ private:
     void initializeEquilibrium();
     void computeInlet();
     void computeOutlet();
+    void copy_boundary_to_temp();
 
 };
