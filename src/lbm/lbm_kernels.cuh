@@ -137,7 +137,7 @@ __global__ void stream_kernel(
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
-    if (cell_type[id] == SOLID) return;
+    if (cell_type[id] != FLUID) return;
 
     int z = id / (nx * ny);
     int y = (id % (nx * ny)) / nx;
@@ -158,10 +158,12 @@ __global__ void stream_kernel(
 
         int src_id = src_z * (nx * ny) + src_y * nx + src_x;
 
-        if (cell_type[src_id] != SOLID) {
-            f[id * Q + q] = f_temp[src_id * Q + q];
-        } else {
+        if (cell_type[src_id] == SOLID) {
+            // wall bounce-back
             f[id * Q + q] = f_temp[id * Q + d_opposite[q]];
+        } else {
+            // pull da FLUID, INLET, OUTLET
+            f[id * Q + q] = f_temp[src_id * Q + q];
         }
     }
 }
@@ -276,7 +278,7 @@ __global__ void outlet_kernel(
     uy[id]  = uy[src_id];
     uz[id]  = uz[src_id];
 
-    double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
+    //double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
     
     for (int q = 0; q < Q; q++) {
         /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
