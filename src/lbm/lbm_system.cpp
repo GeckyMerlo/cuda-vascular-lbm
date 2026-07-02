@@ -197,8 +197,8 @@ void LBMSystem::copy_boundary_to_temp() {
     if (grid_all <= 0) return;
 
     copy_boundary_to_temp_kernel<<<grid_all, block>>>(
-        fluid.f,
         fluid.f_temp,
+        fluid.f,
         space.d_cell_type,
         space.num_cells
     );
