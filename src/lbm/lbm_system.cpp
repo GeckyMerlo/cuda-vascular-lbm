@@ -164,7 +164,8 @@ void LBMSystem::computeOutlet() {
         fluid.velocity_z,
         space.d_outlet_ids,
         space.d_outlet_src_ids,
-        space.num_outlet_cells
+        space.num_outlet_cells,
+        space.d_cell_type
     );
 }
 

@@ -265,7 +265,8 @@ __global__ void outlet_kernel(
     double* uz,
     const int* outlet_ids,
     const int* outlet_src_ids,
-    int num_outlet_cells
+    int num_outlet_cells,
+    CellType* cell_type
 ) {
     int k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= num_outlet_cells) return;
