@@ -63,7 +63,7 @@ __global__ void collide_kernel(
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
-    if (cell_type[id] != FLUID) return;
+    if (cell_type[id] == SOLID) return;
 
     double local_rho = rho[id];
     double local_ux  = ux[id];
@@ -279,6 +279,7 @@ __global__ void outlet_kernel(
     uz[id]  = uz[src_id];
 
     //double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
+    if (cell_type[src_id] != FLUID) return;
     
     for (int q = 0; q < Q; q++) {
         /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
