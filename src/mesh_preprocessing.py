@@ -208,7 +208,7 @@ def main():
 
             zs = origin[2] + (np.arange(k0, k1) + 0.5) * dx
 
-            X, Y, Z = np.meshgrid(xs, ys, zs, indexing="ij")
+            Z, Y, X = np.meshgrid(zs, ys, xs, indexing="ij")
             centers = np.column_stack([
                 X.ravel(),
                 Y.ravel(),
@@ -265,41 +265,41 @@ def main():
         toc(t)
 
         
-        # t = tic("Flood-fill of the boundaries")
+        t = tic("Flood-fill of the boundaries")
 
-        # cell_type_3d = cell_type.reshape((nz, ny, nx))
+        cell_type_3d = cell_type.reshape((nz, ny, nx))
 
-        # inlet_allowed = np.zeros_like(cell_type, dtype=bool)
-        # outlet_allowed = np.zeros_like(cell_type, dtype=bool)
+        inlet_allowed = np.zeros_like(cell_type, dtype=bool)
+        outlet_allowed = np.zeros_like(cell_type, dtype=bool)
 
-        # inlet_slices = np.where(np.any(cell_type_3d == INLET, axis=(1,2)))[0]
-        # outlet_slices = np.where(np.any(cell_type_3d == OUTLET, axis=(1,2)))[0]
+        inlet_slices = np.where(np.any(cell_type_3d == INLET, axis=(1,2)))[0]
+        outlet_slices = np.where(np.any(cell_type_3d == OUTLET, axis=(1,2)))[0]
 
-        # for z in inlet_slices:
-        #     ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
-        #     inlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == INLET)
+        for z in inlet_slices:
+            ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
+            inlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == INLET)
 
-        # for z in outlet_slices:
-        #     ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
-        #     outlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == OUTLET)
+        for z in outlet_slices:
+            ids = np.arange(z * nx * ny, (z + 1) * nx * ny)
+            outlet_allowed[ids] = (cell_type[ids] == FLUID) | (cell_type[ids] == OUTLET)
 
-        # flood_fill_boundary_limited(
-        #     cell_type,
-        #     np.where(cell_type == INLET)[0],
-        #     inlet_allowed,
-        #     INLET,
-        #     nx, ny, nz
-        # )
+        flood_fill_boundary_limited(
+            cell_type,
+            np.where(cell_type == INLET)[0],
+            inlet_allowed,
+            INLET,
+            nx, ny, nz
+        )
 
-        # flood_fill_boundary_limited(
-        #     cell_type,
-        #     np.where(cell_type == OUTLET)[0],
-        #     outlet_allowed,
-        #     OUTLET,
-        #     nx, ny, nz
-        # )
+        flood_fill_boundary_limited(
+            cell_type,
+            np.where(cell_type == OUTLET)[0],
+            outlet_allowed,
+            OUTLET,
+            nx, ny, nz
+        )
         
-        # toc(t)
+        toc(t)
         
 
         print("\nCell statistics:")
