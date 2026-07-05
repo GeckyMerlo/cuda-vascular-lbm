@@ -166,7 +166,10 @@ void LBMSystem::computeOutlet() {
         space.d_outlet_ids,
         space.d_outlet_src_ids,
         space.num_outlet_cells,
-        space.d_cell_type
+        space.d_cell_type,
+        space.nx,
+        space.ny,
+        space.nz
     );
 }
 
