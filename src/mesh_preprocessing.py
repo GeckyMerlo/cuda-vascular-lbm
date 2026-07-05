@@ -173,11 +173,12 @@ def main():
 
         t = tic("Creating voxel grid metadata")
         bounds = surface_mesh.bounds
-        origin = bounds[0]
-        max_p = bounds[1]
+        padding_vec = np.array([2*dx, 2*dx, 0.0])
+        origin = bounds[0] - padding_vec
+        max_p  = bounds[1] + padding_vec
 
         extent = max_p - origin
-        nx, ny, nz = np.ceil(extent / dx).astype(int) + 1
+        nx, ny, nz = np.ceil(extent / dx).astype(int)  # + 1 <- commentato per il momento 
         total_voxels = nx * ny * nz
 
         xs = origin[0] + (np.arange(nx) + 0.5) * dx
