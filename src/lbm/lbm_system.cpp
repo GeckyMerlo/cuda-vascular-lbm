@@ -101,7 +101,7 @@ void LBMSystem::applyBoundaryConditions() {
     );
 
 
-    int grid_outlet = (space.num_outlet_cells + block - 1) / block;
+    int grid_outlet = (space.num_outlets + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
     outlet_kernel<<<grid_outlet, block>>>(
@@ -112,7 +112,7 @@ void LBMSystem::applyBoundaryConditions() {
         fluid.velocity_z,
         space.d_outlet_ids,
         space.d_outlet_src_ids,
-        space.num_outlet_cells,
+        space.num_outlets,
         space.d_cell_type,
         space.nx,
         space.ny,
@@ -157,7 +157,7 @@ void LBMSystem::initializeEquilibrium() {
 void LBMSystem::computeOutlet() {
     int block = 256;
 
-    int grid_outlet = (space.num_outlet_cells + block - 1) / block;
+    int grid_outlet = (space.num_outlets + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
     zou_he_pressure_outlet_kernel<<<grid_outlet, block>>>(
@@ -171,7 +171,7 @@ void LBMSystem::computeOutlet() {
         space.d_normals_x,
         space.d_normals_y,
         space.d_normals_z,
-        space.num_outlet_cells,
+        space.num_outlets,
         1.0 // rho_out
     );
 }
