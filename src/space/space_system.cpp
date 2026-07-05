@@ -146,10 +146,10 @@ SpaceSystem::~SpaceSystem()
     freeDevice(space_data.d_outlet_ids);
     freeDevice(space_data.d_outlet_src_ids);
 
-    FreeHost(space_data.h_normals);
-    FreeDevice(space_data.d_normals_x);
-    FreeDevice(space_data.d_normals_y);
-    FreeDevice(space_data.d_normals_z);
+    freeHost(space_data.h_normals);
+    freeDevice(space_data.d_normals_x);
+    freeDevice(space_data.d_normals_y);
+    freeDevice(space_data.d_normals_z);
     }
 
 const SpaceData& SpaceSystem::data() const
