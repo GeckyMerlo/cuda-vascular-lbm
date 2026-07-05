@@ -137,7 +137,8 @@ __global__ void stream_kernel(
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
-    if (cell_type[id] != FLUID) return;
+    //if (cell_type[id] != FLUID) return;
+    if (cell_type[id] == SOLID) return;
 
     int z = id / (nx * ny);
     int y = (id % (nx * ny)) / nx;
