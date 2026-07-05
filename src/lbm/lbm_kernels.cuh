@@ -3,6 +3,14 @@
 #include "lbm_constants.cuh"
 #include "../space/space_data.cuh"
 
+__device__ double feq_q(int q, double rho, double ux, double uy, double uz) {
+    double cu = d_cx[q]*ux + d_cy[q]*uy + d_cz[q]*uz;
+    double u2 = ux*ux + uy*uy + uz*uz;
+
+    return d_w[q] * rho *
+        (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
+}
+
 __global__ void initializeEquilibrium_kernel(
     double* f,
     double* f_temp,
@@ -213,48 +221,54 @@ __global__ void inlet_kernel(
 ) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id >= num_cells) return;
-
     if (cell_type[id] != INLET) return;
 
     rho[id] = rho0;
-    ux[id] = ux_in;
-    uy[id] = uy_in;
-    uz[id] = uz_in;
+    ux[id]  = ux_in;
+    uy[id]  = uy_in;
+    uz[id]  = uz_in;
 
     int z = id / (nx * ny);
     int y = (id % (nx * ny)) / nx;
     int x = id % nx;
 
-    double u2 = ux_in*ux_in + uy_in*uy_in + uz_in*uz_in;
-
-    for (int q = 0; q < Q; q++) {
-        
-        bool missing = false; // <- Flag to check if a direction is missing, we don't want to apply conditions to directions that are not missing
+    for (int q = 1; q < Q; q++) {
 
         int src_x = x - d_cx[q];
         int src_y = y - d_cy[q];
         int src_z = z - d_cz[q];
 
-        // Check if the source cell is out of bounds or solid
-        if (src_x < 0 || src_x >= nx ||
+        bool missing =
+            src_x < 0 || src_x >= nx ||
             src_y < 0 || src_y >= ny ||
-            src_z < 0 || src_z >= nz) {
-            missing = true;
-        } else {
+            src_z < 0 || src_z >= nz;
+
+        if (!missing) {
             int src_id = src_z * (nx * ny) + src_y * nx + src_x;
-            if (cell_type[src_id] == SOLID) {
-                missing = true;
-            }
+            missing = (cell_type[src_id] == SOLID);
         }
 
-        if (!missing) continue; // Skip directions that are not missing
+        if (!missing) continue;
 
-        double cu = d_cx[q]*ux_in + d_cy[q]*uy_in + d_cz[q]*uz_in;
+        // cella interna opposta alla direzione mancante
+        int in_x = x + d_cx[q];
+        int in_y = y + d_cy[q];
+        int in_z = z + d_cz[q];
 
-        double feq = d_w[q] * rho0 *
-            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
+        if (in_x < 0 || in_x >= nx ||
+            in_y < 0 || in_y >= ny ||
+            in_z < 0 || in_z >= nz) {
+            continue;
+        }
 
-        f[id * Q + q] = feq;
+        int inner_id = in_z * (nx * ny) + in_y * nx + in_x;
+
+        if (cell_type[inner_id] == SOLID) continue;
+
+        f[id*Q + q] =
+            f[inner_id*Q + q]
+            - feq_q(q, rho[inner_id], ux[inner_id], uy[inner_id], uz[inner_id])
+            + feq_q(q, rho0, ux_in, uy_in, uz_in);
     }
 }
 
@@ -361,14 +375,8 @@ __global__ void copy_boundary_to_temp_kernel(
     }
 }
 
-__device__ double feq_q(int q, double rho, double ux, double uy, double uz) {
-    double cu = d_cx[q]*ux + d_cy[q]*uy + d_cz[q]*uz;
-    double u2 = ux*ux + uy*uy + uz*uz;
 
-    return d_w[q] * rho *
-        (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
-}
-
+/*
 __device__ void zou_he_reconstruct(
     double* f,
     int id,
@@ -485,3 +493,4 @@ __global__ void zou_he_pressure_outlet_kernel(
         }
     }
 }
+    */
