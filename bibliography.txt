@@ -137,3 +137,6 @@ Schema of required and possible kernels made with LLM (not all the physics alrea
     - Prepares VTK/CSV output every N timesteps.
 
 
+Python lbm library --- studied to understand how to apply boundary conditions
+
+https://pycodegen.pages.i10git.cs.fau.de/lbmpy/sphinx/boundary_conditions.html?utm_source=chatgpt.com#lbmpy.boundaries.boundaryconditions.NeumannByCopy

@@ -258,6 +258,7 @@ __global__ void inlet_kernel(
     }
 }
 
+/*
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -287,8 +288,60 @@ __global__ void outlet_kernel(
         /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
 
         f[id * Q + q] = d_w[q] * rho[id] *
-            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);*/
+            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
         f[id * Q + q] = f[src_id * Q + q];
+    }
+}
+*/
+
+
+__global__ void outlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* outlet_ids,
+    const int* outlet_src_ids,
+    int num_outlet_cells,
+    const CellType* cell_type,
+    int nx, int ny, int nz
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_outlet_cells) return;
+
+    int id     = outlet_ids[k];
+    int src_id = outlet_src_ids[k];
+
+    if (src_id < 0 || cell_type[src_id] == SOLID) return;
+
+    rho[id] = rho[src_id];
+    ux[id]  = ux[src_id];
+    uy[id]  = uy[src_id];
+    uz[id]  = uz[src_id];
+
+    int z = id / (nx * ny);
+    int y = (id % (nx * ny)) / nx;
+    int x = id % nx;
+
+    for (int q = 0; q < Q; q++) {
+        int src_x = x - d_cx[q];
+        int src_y = y - d_cy[q];
+        int src_z = z - d_cz[q];
+
+        bool missing =
+            src_x < 0 || src_x >= nx ||
+            src_y < 0 || src_y >= ny ||
+            src_z < 0 || src_z >= nz;
+
+        if (!missing) {
+            int pull_id = src_z * (nx * ny) + src_y * nx + src_x;
+            missing = (cell_type[pull_id] == SOLID);
+        }
+
+        if (missing) {
+            f[id * Q + q] = f[src_id * Q + q];
+        }
     }
 }
 
