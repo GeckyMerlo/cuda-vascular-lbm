@@ -160,7 +160,7 @@ void LBMSystem::computeOutlet() {
     int grid_outlet = (space.num_outlets + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
-    computeOutlet_kernel<<<grid_outlet, block>>>(
+    Outlet_kernel<<<grid_outlet, block>>>(
         fluid.f,
         fluid.density,
         fluid.velocity_x,
@@ -182,7 +182,7 @@ void LBMSystem::computeInlet() {
     int grid_all = (space.num_cells + block - 1) / block;
     if (grid_all <= 0) return;
 
-    computeInlet_kernel<<<grid_all, block>>>(
+    Inlet_kernel<<<grid_all, block>>>(
         fluid.f,
         fluid.density,
         fluid.velocity_x,
@@ -198,6 +198,7 @@ void LBMSystem::computeInlet() {
         space.ny,
         space.nz
     );
+
 }
 
 void LBMSystem::copy_boundary_to_temp() {
