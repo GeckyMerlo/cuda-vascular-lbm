@@ -160,7 +160,7 @@ void LBMSystem::computeOutlet() {
     int grid_outlet = (space.num_outlet_cells + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
-    outlet_kernel<<<grid_outlet, block>>>(
+    zou_he_pressure_outlet_kernel<<<grid_outlet, block>>>(
         fluid.f,
         fluid.density,
         fluid.velocity_x,
@@ -168,11 +168,11 @@ void LBMSystem::computeOutlet() {
         fluid.velocity_z,
         space.d_outlet_ids,
         space.d_outlet_src_ids,
+        space.d_normals_x,
+        space.d_normals_y,
+        space.d_normals_z,
         space.num_outlet_cells,
-        space.d_cell_type,
-        space.nx,
-        space.ny,
-        space.nz
+        1.0 // rho_out
     );
 }
 
@@ -182,21 +182,18 @@ void LBMSystem::computeInlet() {
     int grid_all = (space.num_cells + block - 1) / block;
     if (grid_all <= 0) return;
 
-    inlet_kernel<<<grid_all, block>>>(
-        fluid.f,
-        fluid.density,
-        fluid.velocity_x,
-        fluid.velocity_y,
-        fluid.velocity_z,
-        space.d_cell_type,
-        space.num_cells,
-        1.0,      // rho0
-        0.0,      // ux
-        0.0,      // uy
-        0.0075 ,     // uz, vessel axis in vena_cilindrica.geo, <-- value given consideri fisic velocity of 0,15 m/s, voxel 0.2 mm, delta_t 0.00001 s
-        space.nx,
-        space.ny,
-        space.nz
+    zou_he_velocity_inlet_kernel<<<grid_all, block>>>(
+    fluid.f,
+    fluid.density,
+    fluid.velocity_x,
+    fluid.velocity_y,
+    fluid.velocity_z,
+    space.d_inlet_ids,
+    space.d_normals_x,
+    space.d_normals_y,
+    space.d_normals_z,
+    space.num_inlets,
+    0.15 // u_in
     );
 }
 
@@ -213,6 +210,8 @@ void LBMSystem::copy_boundary_to_temp() {
         space.num_cells
     );
 }
+
+
 
 
 

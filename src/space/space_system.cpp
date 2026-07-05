@@ -223,8 +223,7 @@ bool SpaceSystem::loadVoxelDomain(const char* filename)
     }
 
     const std::size_t normal_bytes =
-    static_cast<std::size_t>(space_data.num_cells) *
-    3 * sizeof(double);
+    static_cast<std::size_t>(space_data.num_cells) * sizeof(double);
 
     if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
                             normal_bytes),
@@ -236,14 +235,46 @@ bool SpaceSystem::loadVoxelDomain(const char* filename)
         return false;
     }
 
-    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals),
+    double *normals_x = new double[static_cast<std::size_t>(space_data.num_cells)];
+    double *normals_y = new double[static_cast<std::size_t>(space_data.num_cells)];
+    double *normals_z = new double[static_cast<std::size_t>(space_data.num_cells)];
+
+    for (int i = 0; i < space_data.num_cells; ++i) {
+        normals_x[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 0];
+        normals_y[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 1];
+        normals_z[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 2];
+    }
+
+    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_x),
                         normal_bytes),
-                "cudaMalloc(d_normals)") ||
-        !cudaOk(cudaMemcpy(space_data.d_normals,
-                        space_data.h_normals,
+                "cudaMalloc(d_normals_x)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_x,
+                        normals_x,
                         normal_bytes,
                         cudaMemcpyHostToDevice),
-                "cudaMemcpy(d_normals)")) {
+                "cudaMemcpy(d_normals_x)")) {
+        return false;
+    }
+
+    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_y),
+                        normal_bytes),
+                "cudaMalloc(d_normals_y)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_y,
+                        normals_y,
+                        normal_bytes,
+                        cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals_y)")) {
+        return false;
+    }
+
+    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_z),
+                        normal_bytes),
+                "cudaMalloc(d_normals_z)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_z,
+                        normals_z,
+                        normal_bytes,
+                        cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals_z)")) {
         return false;
     }
 
@@ -333,14 +364,13 @@ bool SpaceSystem::buildBoundaryIdLists()
 
 bool SpaceSystem::buildOutletSourceIds()
 {
-    space_data.num_outlet_cells = space_data.num_outlets;
 
-    if (space_data.num_outlet_cells <= 0) {
+    if (space_data.num_outlets <= 0) {
         return true;
     }
 
-    std::vector<int> source_ids(static_cast<std::size_t>(space_data.num_outlet_cells));
-    for (int i = 0; i < space_data.num_outlet_cells; ++i) {
+    std::vector<int> source_ids(static_cast<std::size_t>(space_data.num_outlets));
+    for (int i = 0; i < space_data.num_outlets; ++i) {
         const int outlet_id = space_data.h_outlet_ids[i];
         source_ids[static_cast<std::size_t>(i)] =
             isValidCellId(outlet_id, space_data) ? findOutletSourceId(outlet_id, space_data)

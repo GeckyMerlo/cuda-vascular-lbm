@@ -360,3 +360,128 @@ __global__ void copy_boundary_to_temp_kernel(
         }
     }
 }
+
+__device__ double feq_q(int q, double rho, double ux, double uy, double uz) {
+    double cu = d_cx[q]*ux + d_cy[q]*uy + d_cz[q]*uz;
+    double u2 = ux*ux + uy*uy + uz*uz;
+
+    return d_w[q] * rho *
+        (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
+}
+
+__device__ void zou_he_reconstruct(
+    double* f,
+    int id,
+    int q,
+    double rho,
+    double ux,
+    double uy,
+    double uz
+) {
+    int opp = d_opposite[q];
+
+    f[id*Q + q] =
+        f[id*Q + opp]
+        + feq_q(q,   rho, ux, uy, uz)
+        - feq_q(opp, rho, ux, uy, uz);
+}
+
+__global__ void zou_he_velocity_inlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* inlet_ids,
+    const double* normal_x,
+    const double* normal_y,
+    const double* normal_z,
+    int num_inlet_cells,
+    double u_in
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_inlet_cells) return;
+
+    int id = inlet_ids[k];
+
+    double nx = normal_x[id];
+    double ny = normal_y[id];
+    double nz = normal_z[id];
+
+    // se n è uscente, all'inlet la velocità deve entrare nel dominio
+    double ux_in = -u_in * nx;
+    double uy_in = -u_in * ny;
+    double uz_in = -u_in * nz;
+
+    // rho approssimata dalle popolazioni attuali dopo streaming
+    double local_rho = 0.0;
+    for (int q = 0; q < Q; q++) {
+        local_rho += f[id*Q + q];
+    }
+
+    rho[id] = local_rho;
+    ux[id] = ux_in;
+    uy[id] = uy_in;
+    uz[id] = uz_in;
+
+    for (int q = 1; q < Q; q++) {
+        double dot = d_cx[q]*nx + d_cy[q]*ny + d_cz[q]*nz;
+
+        if (dot > 0.0) {
+            zou_he_reconstruct(
+                f, id, q,
+                local_rho,
+                ux_in, uy_in, uz_in
+            );
+        }
+    }
+}
+
+
+__global__ void zou_he_pressure_outlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* outlet_ids,
+    const int* outlet_src_ids,
+    const double* normal_x,
+    const double* normal_y,
+    const double* normal_z,
+    int num_outlet_cells,
+    double rho_out
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_outlet_cells) return;
+
+    int id = outlet_ids[k];
+    int src_id = outlet_src_ids[k];
+
+    double nx = normal_x[id];
+    double ny = normal_y[id];
+    double nz = normal_z[id];
+
+    // alla pressure outlet non imposto la velocità:
+    // la prendo dalla cella interna
+    double ux_out = ux[src_id];
+    double uy_out = uy[src_id];
+    double uz_out = uz[src_id];
+
+    rho[id] = rho_out;
+    ux[id] = ux_out;
+    uy[id] = uy_out;
+    uz[id] = uz_out;
+
+    for (int q = 1; q < Q; q++) {
+        double dot = d_cx[q]*nx + d_cy[q]*ny + d_cz[q]*nz;
+
+        if (dot > 0.0) {
+            zou_he_reconstruct(
+                f, id, q,
+                rho_out,
+                ux_out, uy_out, uz_out
+            );
+        }
+    }
+}
