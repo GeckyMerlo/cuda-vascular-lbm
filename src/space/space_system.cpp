@@ -145,7 +145,12 @@ SpaceSystem::~SpaceSystem()
     freeDevice(space_data.d_inlet_ids);
     freeDevice(space_data.d_outlet_ids);
     freeDevice(space_data.d_outlet_src_ids);
-}
+
+    FreeHost(space_data.h_normals);
+    FreeDevice(space_data.d_normals_x);
+    FreeDevice(space_data.d_normals_y);
+    FreeDevice(space_data.d_normals_z);
+    }
 
 const SpaceData& SpaceSystem::data() const
 {
@@ -222,61 +227,41 @@ bool SpaceSystem::loadVoxelDomain(const char* filename)
         return false;
     }
 
-    const std::size_t normal_bytes =
+    const std::size_t normal_component_bytes =
     static_cast<std::size_t>(space_data.num_cells) * sizeof(double);
 
-    if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
-                            normal_bytes),
-                "cudaMallocHost(h_normals)")) {
-        return false;
-    }
+const std::size_t normal_vector_bytes =
+    static_cast<std::size_t>(space_data.num_cells) * 3 * sizeof(double);
 
-    if (!readBytes(file, space_data.h_normals, normal_bytes)) {
-        return false;
-    }
+if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
+                           normal_vector_bytes),
+            "cudaMallocHost(h_normals)")) {
+    return false;
+}
 
-    double *normals_x = new double[static_cast<std::size_t>(space_data.num_cells)];
-    double *normals_y = new double[static_cast<std::size_t>(space_data.num_cells)];
-    double *normals_z = new double[static_cast<std::size_t>(space_data.num_cells)];
+if (!readBytes(file, space_data.h_normals, normal_vector_bytes)) {
+    return false;
+}
+
+    double *normals_x = new double[space_data.num_cells];
+    double *normals_y = new double[space_data.num_cells];
+    double *normals_z = new double[space_data.num_cells];
 
     for (int i = 0; i < space_data.num_cells; ++i) {
-        normals_x[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 0];
-        normals_y[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 1];
-        normals_z[static_cast<std::size_t>(i)] = space_data.h_normals[static_cast<std::size_t>(i) * 3 + 2];
+        std::size_t id = static_cast<std::size_t>(i);
+        normals_x[id] = space_data.h_normals[id * 3 + 0];
+        normals_y[id] = space_data.h_normals[id * 3 + 1];
+        normals_z[id] = space_data.h_normals[id * 3 + 2];
     }
 
-    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_x),
-                        normal_bytes),
-                "cudaMalloc(d_normals_x)") ||
-        !cudaOk(cudaMemcpy(space_data.d_normals_x,
-                        normals_x,
-                        normal_bytes,
-                        cudaMemcpyHostToDevice),
-                "cudaMemcpy(d_normals_x)")) {
-        return false;
-    }
+    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_x), normal_component_bytes);
+    cudaMemcpy(space_data.d_normals_x, normals_x, normal_component_bytes, cudaMemcpyHostToDevice);
 
-    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_y),
-                        normal_bytes),
-                "cudaMalloc(d_normals_y)") ||
-        !cudaOk(cudaMemcpy(space_data.d_normals_y,
-                        normals_y,
-                        normal_bytes,
-                        cudaMemcpyHostToDevice),
-                "cudaMemcpy(d_normals_y)")) {
-        return false;
-    }
+    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_y), normal_component_bytes);
+    cudaMemcpy(space_data.d_normals_y, normals_y, normal_component_bytes, cudaMemcpyHostToDevice);
 
-    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_z),
-                        normal_bytes),
-                "cudaMalloc(d_normals_z)") ||
-        !cudaOk(cudaMemcpy(space_data.d_normals_z,
-                        normals_z,
-                        normal_bytes,
-                        cudaMemcpyHostToDevice),
-                "cudaMemcpy(d_normals_z)")) {
-        return false;
-    }
+    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_z), normal_component_bytes);
+    cudaMemcpy(space_data.d_normals_z, normals_z, normal_component_bytes, cudaMemcpyHostToDevice);
 
     int explicit_inlet_count = 0;
     if (readValue(file, explicit_inlet_count)) {
