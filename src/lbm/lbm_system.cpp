@@ -1,7 +1,26 @@
 #include "lbm_system.hpp"
 #include "lbm_kernels.cuh"
+#include <iostream>
 
 #include <cuda_runtime.h>
+
+double computeTotalMassCPU(
+    std::vector<double>& h_f,
+    std::vector<CellType>& h_cell_type,
+    int num_cells
+) {
+    double mass = 0.0;
+
+    for (int id = 0; id < num_cells; id++) {
+        if (h_cell_type[id] == SOLID) continue;
+
+        for (int q = 0; q < Q; q++) {
+            mass += h_f[id * Q + q];
+        }
+    }
+
+    return mass;
+}
 
 LBMSystem::LBMSystem(const SpaceData& space_data, double dt, double tau)
     : dt(dt),
@@ -10,6 +29,8 @@ LBMSystem::LBMSystem(const SpaceData& space_data, double dt, double tau)
       fluid(space_data.nx, space_data.ny, space_data.nz),
       space(space_data)
 {
+    h_f.resize(space.num_cells * Q); // only for debug
+
     initLBMConstants();
     initializeEquilibrium();
     computeMacroscopicVariables();
@@ -20,17 +41,32 @@ LBMSystem::~LBMSystem() {
 }
 
 void LBMSystem::step() {
-    
     //copy_boundary_to_temp();
     
     collide();
+    if (debug_mode) {
+        cudaMemcpy(h_f.data(), fluid.f_temp, space.num_cells * Q * sizeof(double), cudaMemcpyDeviceToHost);
+        std::cout << "[after collide] mass = " << computeTotalMassCPU(h_f, space.h_cell_type, space.num_cells) << std::endl;
+    }
     /* TEST DI STREAM
     cudaMemcpy(fluid.f_temp, fluid.f, space.num_cells * Q * sizeof(double),
            cudaMemcpyDeviceToDevice);
     */
     stream();
+    if (debug_mode) {
+        cudaMemcpy(h_f.data(), fluid.f, space.num_cells * Q * sizeof(double), cudaMemcpyDeviceToHost);
+        std::cout << "[after stream] mass = " << computeTotalMassCPU(h_f, space.h_cell_type, space.num_cells) << std::endl;
+    }
     computeInlet();
+    if (debug_mode) {
+        cudaMemcpy(h_f.data(), fluid.f, space.num_cells * Q * sizeof(double), cudaMemcpyDeviceToHost);
+        std::cout << "[after inlet] mass = " << computeTotalMassCPU(h_f, space.h_cell_type, space.num_cells) << std::endl;
+    }
     computeOutlet();
+    if (debug_mode) {
+        cudaMemcpy(h_f.data(), fluid.f, space.num_cells * Q * sizeof(double), cudaMemcpyDeviceToHost);
+        std::cout << "[after outlet] mass = " << computeTotalMassCPU(h_f, space.h_cell_type, space.num_cells) << std::endl;
+    }
     //applyBoundaryConditions();
     computeMacroscopicVariables();
 }

@@ -34,4 +34,6 @@ private:
     void computeOutlet();
     void copy_boundary_to_temp();
 
+    bool debug_mode = true; // Set to true to enable debug mode, false to disable
+    std::vector<double> h_f;
 };
