@@ -5,8 +5,8 @@
 #include <cuda_runtime.h>
 
 double computeTotalMassCPU(
-    std::vector<double>& h_f,
-    std::vector<CellType>& h_cell_type,
+    const std::vector<double>& h_f,
+    const CellType* h_cell_type,
     int num_cells
 ) {
     double mass = 0.0;
