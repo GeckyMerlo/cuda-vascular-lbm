@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "fluid_data.cuh"
 #include "../space/space_data.cuh"
 #include "lbm_constants.cuh"
