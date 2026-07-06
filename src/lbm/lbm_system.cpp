@@ -127,7 +127,7 @@ void LBMSystem::applyBoundaryConditions() {
         fluid.velocity_z,
         space.d_cell_type,
         space.num_cells,
-        1.0,      // rho0
+        //1.0,      // rho0
         0.0,      // ux
         0.0,      // uy
         0.0075 ,     // uz, vessel axis in vena_cilindrica.geo, <-- value given consideri fisic velocity of 0,15 m/s, voxel 0.2 mm, delta_t 0.00001 s
@@ -226,7 +226,7 @@ void LBMSystem::computeInlet() {
         fluid.velocity_z,
         space.d_cell_type,
         space.num_cells,
-        1.0,      // rho0
+        //1.0,      // rho0
         0.0,      // ux
         0.0,      // uy
         0.0075 ,     // uz, vessel axis in vena_cilindrica.geo, <-- value given consideri fisic velocity of 0,15 m/s, voxel 0.2 mm, delta_t 0.00001 s
