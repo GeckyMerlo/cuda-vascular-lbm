@@ -205,6 +205,8 @@ __global__ void wall_bounce_back_kernel(
     }
 }
 
+// INLET Kernel that forces velocity and density
+/*
 __global__ void inlet_kernel(
     double* f,
     double* rho,
@@ -258,8 +260,65 @@ __global__ void inlet_kernel(
         f[id*Q + q] = f[id*Q + opp] + 6.0 * d_w[q] * rho0 * cu;
     }
 }
+*/
 
-/*
+//inlet kernel that forces velocity and computes density 
+__global__ void inlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const CellType* cell_type,
+    int num_cells,
+    double ux_in,
+    double uy_in,
+    double uz_in,
+    int nx, int ny, int nz
+) {
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= num_cells) return;
+    if (cell_type[id] != INLET) return;
+
+    // z_min inlet, unknown populations have cz > 0:
+    // 5, 11, 14, 15, 18
+
+    double S0 =
+        f[id*Q + 0] +
+        f[id*Q + 1] + f[id*Q + 2] +
+        f[id*Q + 3] + f[id*Q + 4] +
+        f[id*Q + 7] + f[id*Q + 8] +
+        f[id*Q + 9] + f[id*Q + 10];
+
+    double Sminus =
+        f[id*Q + 6] +
+        f[id*Q + 12] +
+        f[id*Q + 13] +
+        f[id*Q + 16] +
+        f[id*Q + 17];
+
+    double rho_in = (S0 + 2.0*Sminus) / (1.0 - uz_in);
+
+    rho[id] = rho_in;
+    ux[id]  = ux_in;
+    uy[id]  = uy_in;
+    uz[id]  = uz_in;
+
+    int qs[5] = {5, 11, 14, 15, 18};
+
+    for (int i = 0; i < 5; i++) {
+        int q   = qs[i];
+        int opp = d_opposite[q];
+
+        double feq   = feq_q(q,   rho_in, ux_in, uy_in, uz_in);
+        double feq_opp = feq_q(opp, rho_in, ux_in, uy_in, uz_in);
+
+        f[id*Q + q] = feq + (f[id*Q + opp] - feq_opp);
+    }
+}
+
+/* copy all from src_id
+
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -296,7 +355,8 @@ __global__ void outlet_kernel(
 }
 */
 
-/*
+/* copy only missing
+
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -348,7 +408,8 @@ __global__ void outlet_kernel(
 }
 */
 
-/*
+/* equilibrium rho_out = 1
+ 
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -395,6 +456,8 @@ __global__ void outlet_kernel(
     }
 }
 */
+
+/* convective soft correction
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -466,6 +529,67 @@ __global__ void outlet_kernel(
         uy[id] = 0.0;
         uz[id] = 0.0;
     }
+} */
+
+__global__ void outlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* outlet_ids,
+    const int* outlet_src_ids,
+    int num_outlet_cells,
+    const CellType* cell_type,
+    int nx, int ny, int nz
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_outlet_cells) return;
+
+    int id = outlet_ids[k];
+
+    if (cell_type[id] != OUTLET) return;
+
+    // z_max outlet, unknown populations have cz < 0:
+    // 6, 12, 13, 16, 17
+
+    double rho_out = 1.0;
+
+    double ux_out = 0.0;
+    double uy_out = 0.0;
+
+    double S0 =
+        f[id*Q + 0] +
+        f[id*Q + 1] + f[id*Q + 2] +
+        f[id*Q + 3] + f[id*Q + 4] +
+        f[id*Q + 7] + f[id*Q + 8] +
+        f[id*Q + 9] + f[id*Q + 10];
+
+    double Splus =
+        f[id*Q + 5] +
+        f[id*Q + 11] +
+        f[id*Q + 14] +
+        f[id*Q + 15] +
+        f[id*Q + 18];
+
+    double uz_out = (S0 + 2.0*Splus) / rho_out - 1.0;
+
+    rho[id] = rho_out;
+    ux[id]  = ux_out;
+    uy[id]  = uy_out;
+    uz[id]  = uz_out;
+
+    int qs[5] = {6, 12, 13, 16, 17};
+
+    for (int i = 0; i < 5; i++) {
+        int q   = qs[i];
+        int opp = d_opposite[q];
+
+        double feq   = feq_q(q,   rho_out, ux_out, uy_out, uz_out);
+        double feq_opp = feq_q(opp, rho_out, ux_out, uy_out, uz_out);
+
+        f[id*Q + q] = feq + (f[id*Q + opp] - feq_opp);
+    }
 }
 
 __global__ void copy_boundary_to_temp_kernel(
@@ -483,3 +607,5 @@ __global__ void copy_boundary_to_temp_kernel(
         }
     }
 }
+
+
