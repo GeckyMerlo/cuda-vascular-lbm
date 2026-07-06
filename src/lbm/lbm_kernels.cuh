@@ -394,6 +394,79 @@ __global__ void outlet_kernel(
     }
 }
 
+__global__ void outlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* outlet_ids,
+    const int* outlet_src_ids,
+    int num_outlet_cells,
+    const CellType* cell_type,
+    int nx, int ny, int nz
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_outlet_cells) return;
+
+    int id     = outlet_ids[k];
+    int src_id = outlet_src_ids[k];
+
+    if (src_id < 0 || cell_type[src_id] == SOLID) return;
+
+    double alpha = 0.1;      // convective strength
+    double beta  = 0.05;     // density correction strength
+    double rho_target = 1.0;
+
+    // 1. Convective extrapolation
+    for (int q = 0; q < Q; q++) {
+        double f_old    = f[id     * Q + q];
+        double f_inside = f[src_id * Q + q];
+
+        f[id * Q + q] = (1.0 - alpha) * f_old + alpha * f_inside;
+    }
+
+    // 2. Compute current outlet density
+    double rho_now = 0.0;
+    for (int q = 0; q < Q; q++) {
+        rho_now += f[id * Q + q];
+    }
+
+    // 3. Soft correction toward rho = 1
+    double delta_rho = rho_target - rho_now;
+
+    for (int q = 0; q < Q; q++) {
+        f[id * Q + q] += beta * d_w[q] * delta_rho;
+    }
+
+    // 4. Recompute macroscopic variables
+    double r = 0.0;
+    double vx = 0.0;
+    double vy = 0.0;
+    double vz = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        double fq = f[id * Q + q];
+
+        r  += fq;
+        vx += fq * d_cx[q];
+        vy += fq * d_cy[q];
+        vz += fq * d_cz[q];
+    }
+
+    rho[id] = r;
+
+    if (r > 1e-12) {
+        ux[id] = vx / r;
+        uy[id] = vy / r;
+        uz[id] = vz / r;
+    } else {
+        ux[id] = 0.0;
+        uy[id] = 0.0;
+        uz[id] = 0.0;
+    }
+}
+
 __global__ void copy_boundary_to_temp_kernel(
     double* f_temp,
     const double* f,
