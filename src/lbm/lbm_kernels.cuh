@@ -259,7 +259,7 @@ __global__ void inlet_kernel(
     }
 }
 
-/*
+
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -269,7 +269,8 @@ __global__ void outlet_kernel(
     const int* outlet_ids,
     const int* outlet_src_ids,
     int num_outlet_cells,
-    CellType* cell_type
+    CellType* cell_type,
+    int nx, int ny, int nz
 ) {
     int k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= num_outlet_cells) return;
@@ -289,13 +290,13 @@ __global__ void outlet_kernel(
         /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
 
         f[id * Q + q] = d_w[q] * rho[id] *
-            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
+            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2); */
         f[id * Q + q] = f[src_id * Q + q];
     }
 }
-*/
 
 
+/*
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -345,6 +346,7 @@ __global__ void outlet_kernel(
         }
     }
 }
+*/
 
 __global__ void copy_boundary_to_temp_kernel(
     double* f_temp,
