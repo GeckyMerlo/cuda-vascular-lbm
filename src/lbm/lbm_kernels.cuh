@@ -348,6 +348,52 @@ __global__ void outlet_kernel(
 }
 */
 
+__global__ void outlet_kernel(
+    double* f,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz,
+    const int* outlet_ids,
+    const int* outlet_src_ids,
+    int num_outlet_cells,
+    const CellType* cell_type,
+    int nx, int ny, int nz
+) {
+    int k = blockIdx.x * blockDim.x + threadIdx.x;
+    if (k >= num_outlet_cells) return;
+
+    int id     = outlet_ids[k];
+    int src_id = outlet_src_ids[k];
+
+    if (src_id < 0 || cell_type[src_id] == SOLID) return;
+
+    double rho_out = 1.0;
+
+    double ux_out = ux[src_id];
+    double uy_out = uy[src_id];
+    double uz_out = uz[src_id];
+
+    rho[id] = rho_out;
+    ux[id]  = ux_out;
+    uy[id]  = uy_out;
+    uz[id]  = uz_out;
+
+    double u2 = ux_out*ux_out + uy_out*uy_out + uz_out*uz_out;
+
+    // unknown populations at z_max outlet: cz < 0
+    int qs[5] = {6, 12, 13, 16, 17};
+
+    for (int i = 0; i < 5; i++) {
+        int q = qs[i];
+
+        double cu = d_cx[q]*ux_out + d_cy[q]*uy_out + d_cz[q]*uz_out;
+
+        f[id * Q + q] = d_w[q] * rho_out *
+            (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
+    }
+}
+
 __global__ void copy_boundary_to_temp_kernel(
     double* f_temp,
     const double* f,
