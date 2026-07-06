@@ -348,6 +348,7 @@ __global__ void outlet_kernel(
 }
 */
 
+/*
 __global__ void outlet_kernel(
     double* f,
     double* rho,
@@ -393,7 +394,7 @@ __global__ void outlet_kernel(
             (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
     }
 }
-
+*/
 __global__ void outlet_kernel(
     double* f,
     double* rho,
