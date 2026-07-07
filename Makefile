@@ -48,11 +48,11 @@ DEPFLAGS := -MMD -MP
 # Positional simulation arguments.
 MESH_FILE := msh/voxel_domain.bin
 STEPS := 500
-OUTPUT_INTERVAL := 10
+OUTPUT_INTERVAL := 5
 TAU := 0.8
 
 # Particle simulation arguments. Set MAX_PARTICLES to 0 to disable particles.
-MAX_PARTICLES := 5000
+MAX_PARTICLES := 10000
 RBC_RATE := 2
 PLATELET_RATE := 0.2
 LEUKOCYTE_RATE := 0.02

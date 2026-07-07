@@ -437,10 +437,8 @@ void writeFluidVTI(const std::string& filename, const SpaceData& space, const Fl
     out << "  <ImageData WholeExtent=\"0 " << space.nx
         << " 0 " << space.ny
         << " 0 " << space.nz
-        << "\" Origin=\""
-        << space.x0 << " " << space.y0 << " " << space.z0
-        << "\" Spacing=\""
-        << space.dx << " " << space.dy << " " << space.dz << "\">\n";
+        << "\" Origin=\"" << space.x0 << " " << space.y0 << " " << space.z0
+        << "\" Spacing=\"" << space.dx << " " << space.dy << " " << space.dz << "\">\n";
     out << "    <Piece Extent=\"0 " << space.nx
         << " 0 " << space.ny
         << " 0 " << space.nz << "\">\n";
