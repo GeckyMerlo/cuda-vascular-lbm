@@ -249,6 +249,7 @@ Particle fields include:
 - Active flag.
 - Contact count.
 - Radius.
+- Speed.
 - Velocity.
 - Force.
 - Angular velocity.

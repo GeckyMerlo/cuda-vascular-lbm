@@ -13,6 +13,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -47,6 +48,7 @@ struct ParticleStats {
     int dropped_total = 0;
     int exited_total = 0;
     double avg_particle_speed = 0.0;
+    double max_particle_speed = 0.0;
     double total_reaction_x = 0.0;
     double total_reaction_y = 0.0;
     double total_reaction_z = 0.0;
@@ -320,10 +322,12 @@ ParticleStats computeParticleStats(const ParticleData& particles, const FluidDat
         }
 
         stats.finite_particles++;
-        stats.avg_particle_speed += std::sqrt(
+        const double speed = std::sqrt(
             vx[static_cast<std::size_t>(i)] * vx[static_cast<std::size_t>(i)] +
             vy[static_cast<std::size_t>(i)] * vy[static_cast<std::size_t>(i)] +
             vz[static_cast<std::size_t>(i)] * vz[static_cast<std::size_t>(i)]);
+        stats.avg_particle_speed += speed;
+        stats.max_particle_speed = std::max(stats.max_particle_speed, speed);
     }
 
     if (stats.finite_particles > 0) {
@@ -385,6 +389,7 @@ void writeStats(std::ofstream& output, int step, const FluidStats& fluid, const 
         << particles.dropped_total << ','
         << particles.exited_total << ','
         << particles.avg_particle_speed << ','
+        << particles.max_particle_speed << ','
         << particles.total_reaction_x << ','
         << particles.total_reaction_y << ','
         << particles.total_reaction_z << ','
@@ -480,32 +485,55 @@ void writeFluidVTI(const std::string& filename, const SpaceData& space, const Fl
     out << "</VTKFile>\n";
 }
 
+void removeParticleOutputIfPresent(const std::string& filename)
+{
+    std::error_code ignored;
+    std::filesystem::remove(filename, ignored);
+}
+
 void writeParticleVTP(const std::string& filename, const SpaceData& space, const ParticleData& particles)
 {
-    std::ofstream out(filename);
-    if (!out) {
-        throw std::runtime_error("Cannot open VTP file: " + filename);
-    }
-
     if (particles.n <= 0) {
-        out << "<?xml version=\"1.0\"?>\n";
-        out << "<VTKFile type=\"PolyData\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
-        out << "  <PolyData><Piece NumberOfPoints=\"0\" NumberOfVerts=\"0\"/></PolyData>\n";
-        out << "</VTKFile>\n";
+        removeParticleOutputIfPresent(filename);
         return;
     }
 
     const std::size_t n = static_cast<std::size_t>(particles.n);
-    std::vector<int> active(n), species(n), contact_count(n);
-    std::vector<double> x(n), y(n), z(n), vx(n), vy(n), vz(n), fx(n), fy(n), fz(n);
-    std::vector<double> wx(n), wy(n), wz(n), qw(n), qx(n), qy(n), qz(n), radius(n), a(n), b(n), c(n);
+    std::vector<int> active(n);
+    std::vector<double> x(n), y(n), z(n);
 
     cudaMemcpy(active.data(), particles.active, n * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(species.data(), particles.species, n * sizeof(ParticleSpecies), cudaMemcpyDeviceToHost);
-    cudaMemcpy(contact_count.data(), particles.contact_count, n * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(x.data(), particles.x, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(y.data(), particles.y, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(z.data(), particles.z, n * sizeof(double), cudaMemcpyDeviceToHost);
+
+    auto finiteOrZero = [](double value) {
+        return std::isfinite(value) ? value : 0.0;
+    };
+
+    std::vector<int> ids;
+    ids.reserve(n);
+    for (int i = 0; i < particles.n; ++i) {
+        const std::size_t idx = static_cast<std::size_t>(i);
+        if (active[idx] &&
+            std::isfinite(x[idx]) &&
+            std::isfinite(y[idx]) &&
+            std::isfinite(z[idx])) {
+            ids.push_back(i);
+        }
+    }
+
+    if (ids.empty()) {
+        removeParticleOutputIfPresent(filename);
+        return;
+    }
+
+    std::vector<int> species(n), contact_count(n);
+    std::vector<double> vx(n), vy(n), vz(n), fx(n), fy(n), fz(n);
+    std::vector<double> wx(n), wy(n), wz(n), qw(n), qx(n), qy(n), qz(n), radius(n), a(n), b(n), c(n);
+
+    cudaMemcpy(species.data(), particles.species, n * sizeof(ParticleSpecies), cudaMemcpyDeviceToHost);
+    cudaMemcpy(contact_count.data(), particles.contact_count, n * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(vx.data(), particles.vx, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(vy.data(), particles.vy, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(vz.data(), particles.vz, n * sizeof(double), cudaMemcpyDeviceToHost);
@@ -524,20 +552,9 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
     cudaMemcpy(b.data(), particles.b, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(c.data(), particles.c, n * sizeof(double), cudaMemcpyDeviceToHost);
 
-    auto finiteOrZero = [](double value) {
-        return std::isfinite(value) ? value : 0.0;
-    };
-
-    std::vector<int> ids;
-    ids.reserve(n);
-    for (int i = 0; i < particles.n; ++i) {
-        const std::size_t idx = static_cast<std::size_t>(i);
-        if (active[idx] &&
-            std::isfinite(x[idx]) &&
-            std::isfinite(y[idx]) &&
-            std::isfinite(z[idx])) {
-            ids.push_back(i);
-        }
+    std::ofstream out(filename);
+    if (!out) {
+        throw std::runtime_error("Cannot open VTP file: " + filename);
     }
 
     out << "<?xml version=\"1.0\"?>\n";
@@ -584,11 +601,23 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
         }
         out << "\n        </DataArray>\n";
     };
+    auto writeSpeed = [&](const char* name, const std::vector<double>& vxv, const std::vector<double>& vyv, const std::vector<double>& vzv) {
+        out << "        <DataArray type=\"Float64\" Name=\"" << name << "\" format=\"ascii\">\n";
+        for (int id : ids) {
+            const std::size_t i = static_cast<std::size_t>(id);
+            const double speed_x = finiteOrZero(vxv[i]);
+            const double speed_y = finiteOrZero(vyv[i]);
+            const double speed_z = finiteOrZero(vzv[i]);
+            out << std::sqrt(speed_x * speed_x + speed_y * speed_y + speed_z * speed_z) << " ";
+        }
+        out << "\n        </DataArray>\n";
+    };
 
     writeScalarInt("species", species);
     writeScalarInt("active", active);
     writeScalarInt("contact_count", contact_count);
     writeScalarDouble("radius", radius);
+    writeSpeed("speed", vx, vy, vz);
     writeVector("velocity", vx, vy, vz);
     writeVector("force", fx, fy, fz);
     writeVector("angular_velocity", wx, wy, wz);
@@ -698,7 +727,7 @@ int main(int argc, char** argv)
         << "avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,"
         << "mass_flux_in,mass_flux_out,"
         << "active_particles,finite_particles,nonfinite_particles,"
-        << "injected_total,dropped_total,exited_total,avg_particle_speed,"
+        << "injected_total,dropped_total,exited_total,avg_particle_speed,max_particle_speed,"
         << "total_reaction_x,total_reaction_y,total_reaction_z,total_reaction_mag\n";
 
     writeStats(
@@ -774,7 +803,10 @@ int main(int argc, char** argv)
                 std::cout << " nonfinite_cells=" << fluid_stats.nonfinite_cells;
             }
             if (particles_enabled) {
-                std::cout << " active_particles=" << particle_stats.active_particles;
+                std::cout
+                    << " active_particles=" << particle_stats.active_particles
+                    << " avg_particle_speed=" << particle_stats.avg_particle_speed
+                    << " max_particle_speed=" << particle_stats.max_particle_speed;
                 if (particle_stats.nonfinite_particles > 0) {
                     std::cout << " nonfinite_particles=" << particle_stats.nonfinite_particles;
                 }
