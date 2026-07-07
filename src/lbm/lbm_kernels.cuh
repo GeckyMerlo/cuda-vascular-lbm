@@ -65,6 +65,9 @@ __global__ void collide_kernel(
     const double* ux,
     const double* uy,
     const double* uz,
+    const double* force_x,
+    const double* force_y,
+    const double* force_z,
     const CellType* cell_type,
     int num_cells,
     double omega
@@ -77,6 +80,9 @@ __global__ void collide_kernel(
     double local_ux  = ux[id];
     double local_uy  = uy[id];
     double local_uz  = uz[id];
+    double local_fx = force_x[id];
+    double local_fy = force_y[id];
+    double local_fz = force_z[id];
 
     double u2 = local_ux*local_ux +
                 local_uy*local_uy +
@@ -91,8 +97,16 @@ __global__ void collide_kernel(
             (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
 
         int idx = id * Q + q;
+        double c_minus_u_x = d_cx[q] - local_ux;
+        double c_minus_u_y = d_cy[q] - local_uy;
+        double c_minus_u_z = d_cz[q] - local_uz;
+        double guo =
+            d_w[q] * (1.0 - 0.5 * omega) *
+            ((3.0 * c_minus_u_x + 9.0 * d_cx[q] * cu) * local_fx +
+             (3.0 * c_minus_u_y + 9.0 * d_cy[q] * cu) * local_fy +
+             (3.0 * c_minus_u_z + 9.0 * d_cz[q] * cu) * local_fz);
 
-        f_temp[idx] = f[idx] - omega * (f[idx] - feq);
+        f_temp[idx] = f[idx] - omega * (f[idx] - feq) + guo;
     }
 }
 
@@ -102,6 +116,9 @@ __global__ void computeMacroscopicVariables_kernel(
     double* ux,
     double* uy,
     double* uz,
+    const double* force_x,
+    const double* force_y,
+    const double* force_z,
     const CellType* cell_type,
     int num_cells
 ) {
@@ -125,9 +142,9 @@ __global__ void computeMacroscopicVariables_kernel(
 
     rho[id] = local_rho;
     if (local_rho > 0.0) {
-        ux[id] = local_ux / local_rho;
-        uy[id] = local_uy / local_rho;
-        uz[id] = local_uz / local_rho;
+        ux[id] = (local_ux + 0.5 * force_x[id]) / local_rho;
+        uy[id] = (local_uy + 0.5 * force_y[id]) / local_rho;
+        uz[id] = (local_uz + 0.5 * force_z[id]) / local_rho;
     }else{
         ux[id] = 0.0;
         uy[id] = 0.0;

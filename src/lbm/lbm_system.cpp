@@ -91,6 +91,9 @@ void LBMSystem::collide() {
         fluid.velocity_x,
         fluid.velocity_y,
         fluid.velocity_z,
+        fluid.force_x,
+        fluid.force_y,
+        fluid.force_z,
         space.d_cell_type,
         space.num_cells,
         omega
@@ -164,6 +167,7 @@ void LBMSystem::computeMacroscopicVariables() {
     ::computeMacroscopicVariables_kernel<<<grid, block>>>(
         fluid.f,
         fluid.density, fluid.velocity_x, fluid.velocity_y, fluid.velocity_z,
+        fluid.force_x, fluid.force_y, fluid.force_z,
         space.d_cell_type,
         space.num_cells
     );

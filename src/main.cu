@@ -1,4 +1,6 @@
+#include "forces/force_model.hpp"
 #include "lbm/lbm_system.hpp"
+#include "particles/particle_system.hpp"
 #include "space/space_system.hpp"
 
 #include <cuda_runtime.h>
@@ -32,6 +34,45 @@ struct FluidStats {
     int outlet_cells = 0;
 };
 
+struct ParticleStats {
+    int active_particles = 0;
+    int injected_total = 0;
+    int dropped_total = 0;
+    int exited_total = 0;
+    double avg_particle_speed = 0.0;
+    double total_reaction_x = 0.0;
+    double total_reaction_y = 0.0;
+    double total_reaction_z = 0.0;
+    double total_reaction_mag = 0.0;
+};
+
+struct ParticleConfig {
+    int max_particles = 0;
+    double rbc_rate = 1.0;
+    double platelet_rate = 0.0;
+    double leukocyte_rate = 0.0;
+    int particle_output_interval = 0;
+    double contact_stiffness = 0.05;
+    double contact_damping = 0.02;
+    double friction = 0.2;
+    double wall_stiffness = 0.08;
+    double wall_damping = 0.02;
+};
+
+struct RuntimeConfig {
+    std::string mesh_file = "msh/voxel_domain.bin";
+    int steps = 200;
+    int output_interval = 20;
+    double tau = 0.8;
+    ParticleConfig particles;
+};
+
+struct InjectionAccumulator {
+    double rbc = 0.0;
+    double platelet = 0.0;
+    double leukocyte = 0.0;
+};
+
 bool cudaOk(cudaError_t result, const char* operation)
 {
     if (result == cudaSuccess) {
@@ -42,22 +83,96 @@ bool cudaOk(cudaError_t result, const char* operation)
     return false;
 }
 
-int parseIntArg(char** argv, int argc, int index, int default_value)
+bool startsWithDashDash(const std::string& value)
 {
-    if (argc <= index) {
-        return default_value;
-    }
-
-    return std::stoi(argv[index]);
+    return value.rfind("--", 0) == 0;
 }
 
-double parseDoubleArg(char** argv, int argc, int index, double default_value)
+std::string optionValue(const std::string& arg, char** argv, int argc, int& i)
 {
-    if (argc <= index) {
-        return default_value;
+    const std::size_t equals = arg.find('=');
+    if (equals != std::string::npos) {
+        return arg.substr(equals + 1);
     }
 
-    return std::stod(argv[index]);
+    if (i + 1 >= argc) {
+        throw std::runtime_error("Missing value for option: " + arg);
+    }
+
+    ++i;
+    return argv[i];
+}
+
+RuntimeConfig parseArgs(int argc, char** argv)
+{
+    RuntimeConfig config;
+    std::vector<std::string> positional;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (!startsWithDashDash(arg)) {
+            positional.push_back(arg);
+            continue;
+        }
+
+        std::string name = arg;
+        const std::size_t equals = name.find('=');
+        if (equals != std::string::npos) {
+            name = name.substr(0, equals);
+        }
+
+        const std::string value = optionValue(arg, argv, argc, i);
+
+        if (name == "--max-particles") {
+            config.particles.max_particles = std::stoi(value);
+        } else if (name == "--rbc-rate") {
+            config.particles.rbc_rate = std::stod(value);
+        } else if (name == "--platelet-rate") {
+            config.particles.platelet_rate = std::stod(value);
+        } else if (name == "--leukocyte-rate") {
+            config.particles.leukocyte_rate = std::stod(value);
+        } else if (name == "--particle-output-interval") {
+            config.particles.particle_output_interval = std::stoi(value);
+        } else if (name == "--contact-stiffness") {
+            config.particles.contact_stiffness = std::stod(value);
+        } else if (name == "--contact-damping") {
+            config.particles.contact_damping = std::stod(value);
+        } else if (name == "--friction") {
+            config.particles.friction = std::stod(value);
+        } else if (name == "--wall-stiffness") {
+            config.particles.wall_stiffness = std::stod(value);
+        } else if (name == "--wall-damping") {
+            config.particles.wall_damping = std::stod(value);
+        } else {
+            throw std::runtime_error("Unknown option: " + name);
+        }
+    }
+
+    if (positional.size() > 0) config.mesh_file = positional[0];
+    if (positional.size() > 1) config.steps = std::stoi(positional[1]);
+    if (positional.size() > 2) config.output_interval = std::stoi(positional[2]);
+    if (positional.size() > 3) config.tau = std::stod(positional[3]);
+    if (positional.size() > 4) {
+        throw std::runtime_error("Too many positional arguments");
+    }
+
+    if (config.particles.particle_output_interval <= 0) {
+        config.particles.particle_output_interval = config.output_interval;
+    }
+
+    return config;
+}
+
+int injectionCount(double rate, double& accumulator)
+{
+    if (rate <= 0.0) {
+        return 0;
+    }
+
+    accumulator += rate;
+    int count = static_cast<int>(std::floor(accumulator));
+    accumulator -= static_cast<double>(count);
+    return count;
 }
 
 FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
@@ -87,41 +202,34 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
             continue;
         }
 
-        const double speed = std::sqrt(
-            ux[static_cast<std::size_t>(id)] * ux[static_cast<std::size_t>(id)] +
-            uy[static_cast<std::size_t>(id)] * uy[static_cast<std::size_t>(id)] +
-            uz[static_cast<std::size_t>(id)] * uz[static_cast<std::size_t>(id)]);
+        const double speed = std::sqrt(ux[id] * ux[id] + uy[id] * uy[id] + uz[id] * uz[id]);
 
         stats.active_cells += 1;
-        stats.avg_density += rho[static_cast<std::size_t>(id)];
-        stats.avg_ux += ux[static_cast<std::size_t>(id)];
-        stats.avg_uy += uy[static_cast<std::size_t>(id)];
-        stats.avg_uz += uz[static_cast<std::size_t>(id)];
+        stats.avg_density += rho[id];
+        stats.avg_ux += ux[id];
+        stats.avg_uy += uy[id];
+        stats.avg_uz += uz[id];
         stats.avg_speed += speed;
         stats.max_speed = std::max(stats.max_speed, speed);
 
         const auto type = space.h_cell_type[id];
-        const double r = rho[id];
-        const double uz_id = uz[id];
+        const double normal_dot_u =
+            ux[id] * space.h_normals[3 * id] +
+            uy[id] * space.h_normals[3 * id + 1] +
+            uz[id] * space.h_normals[3 * id + 2];
 
         if (type == INLET) {
             stats.inlet_cells++;
-            stats.avg_density_inlet += r;
-            stats.avg_uz_inlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
-            stats.mass_flux_in += r * (
-                ux[id] * space.h_normals[3 * id] +
-                uy[id] * space.h_normals[3 * id + 1] +
-                uz[id] * space.h_normals[3 * id + 2]);
+            stats.avg_density_inlet += rho[id];
+            stats.avg_uz_inlet += normal_dot_u;
+            stats.mass_flux_in += rho[id] * normal_dot_u;
         }
 
         if (type == OUTLET) {
             stats.outlet_cells++;
-            stats.avg_density_outlet += r;
-            stats.avg_uz_outlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
-            stats.mass_flux_out += r * (
-                ux[id] * space.h_normals[3 * id] +
-                uy[id] * space.h_normals[3 * id + 1] +
-                uz[id] * space.h_normals[3 * id + 2]);
+            stats.avg_density_outlet += rho[id];
+            stats.avg_uz_outlet += normal_dot_u;
+            stats.mass_flux_out += rho[id] * normal_dot_u;
         }
     }
 
@@ -135,35 +243,114 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
     }
 
     if (stats.inlet_cells > 0) {
-    stats.avg_density_inlet /= stats.inlet_cells;
-    stats.avg_uz_inlet /= stats.inlet_cells;
+        stats.avg_density_inlet /= stats.inlet_cells;
+        stats.avg_uz_inlet /= stats.inlet_cells;
     }
 
     if (stats.outlet_cells > 0) {
         stats.avg_density_outlet /= stats.outlet_cells;
         stats.avg_uz_outlet /= stats.outlet_cells;
-}
+    }
 
     return stats;
 }
 
-void writeStats(std::ofstream& output, int step, const FluidStats& stats)
+ParticleStats computeParticleStats(const ParticleData& particles, const FluidData& fluid, int num_cells)
+{
+    ParticleStats stats;
+    if (particles.n <= 0) {
+        return stats;
+    }
+
+    std::vector<int> active(static_cast<std::size_t>(particles.n));
+    std::vector<double> vx(static_cast<std::size_t>(particles.n));
+    std::vector<double> vy(static_cast<std::size_t>(particles.n));
+    std::vector<double> vz(static_cast<std::size_t>(particles.n));
+
+    if (!cudaOk(cudaMemcpy(active.data(), particles.active, active.size() * sizeof(int), cudaMemcpyDeviceToHost),
+                "copy particle active flags") ||
+        !cudaOk(cudaMemcpy(vx.data(), particles.vx, vx.size() * sizeof(double), cudaMemcpyDeviceToHost),
+                "copy particle vx") ||
+        !cudaOk(cudaMemcpy(vy.data(), particles.vy, vy.size() * sizeof(double), cudaMemcpyDeviceToHost),
+                "copy particle vy") ||
+        !cudaOk(cudaMemcpy(vz.data(), particles.vz, vz.size() * sizeof(double), cudaMemcpyDeviceToHost),
+                "copy particle vz")) {
+        throw std::runtime_error("Failed to copy particle statistics from GPU");
+    }
+
+    cudaMemcpy(&stats.injected_total, particles.injected_total, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&stats.dropped_total, particles.dropped_total, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&stats.exited_total, particles.exited_total, sizeof(int), cudaMemcpyDeviceToHost);
+
+    for (int i = 0; i < particles.n; ++i) {
+        if (!active[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+
+        stats.active_particles++;
+        stats.avg_particle_speed += std::sqrt(
+            vx[static_cast<std::size_t>(i)] * vx[static_cast<std::size_t>(i)] +
+            vy[static_cast<std::size_t>(i)] * vy[static_cast<std::size_t>(i)] +
+            vz[static_cast<std::size_t>(i)] * vz[static_cast<std::size_t>(i)]);
+    }
+
+    if (stats.active_particles > 0) {
+        stats.avg_particle_speed /= static_cast<double>(stats.active_particles);
+    }
+
+    std::vector<double> fx(static_cast<std::size_t>(num_cells));
+    std::vector<double> fy(static_cast<std::size_t>(num_cells));
+    std::vector<double> fz(static_cast<std::size_t>(num_cells));
+    const std::size_t force_bytes = static_cast<std::size_t>(num_cells) * sizeof(double);
+
+    if (!cudaOk(cudaMemcpy(fx.data(), fluid.force_x, force_bytes, cudaMemcpyDeviceToHost),
+                "copy fluid force_x") ||
+        !cudaOk(cudaMemcpy(fy.data(), fluid.force_y, force_bytes, cudaMemcpyDeviceToHost),
+                "copy fluid force_y") ||
+        !cudaOk(cudaMemcpy(fz.data(), fluid.force_z, force_bytes, cudaMemcpyDeviceToHost),
+                "copy fluid force_z")) {
+        throw std::runtime_error("Failed to copy fluid reaction statistics from GPU");
+    }
+
+    for (int id = 0; id < num_cells; ++id) {
+        stats.total_reaction_x += fx[static_cast<std::size_t>(id)];
+        stats.total_reaction_y += fy[static_cast<std::size_t>(id)];
+        stats.total_reaction_z += fz[static_cast<std::size_t>(id)];
+    }
+    stats.total_reaction_mag = std::sqrt(
+        stats.total_reaction_x * stats.total_reaction_x +
+        stats.total_reaction_y * stats.total_reaction_y +
+        stats.total_reaction_z * stats.total_reaction_z);
+
+    return stats;
+}
+
+void writeStats(std::ofstream& output, int step, const FluidStats& fluid, const ParticleStats& particles)
 {
     output
         << step << ','
-        << stats.active_cells << ','
-        << stats.avg_density << ','
-        << stats.avg_ux << ','
-        << stats.avg_uy << ','
-        << stats.avg_uz << ','
-        << stats.avg_speed << ','
-        << stats.max_speed << ','
-        << stats.avg_density_inlet << ','
-        << stats.avg_density_outlet << ','
-        << stats.avg_uz_inlet << ','
-        << stats.avg_uz_outlet << ','
-        << stats.mass_flux_in << ','
-        << stats.mass_flux_out << '\n';
+        << fluid.active_cells << ','
+        << fluid.avg_density << ','
+        << fluid.avg_ux << ','
+        << fluid.avg_uy << ','
+        << fluid.avg_uz << ','
+        << fluid.avg_speed << ','
+        << fluid.max_speed << ','
+        << fluid.avg_density_inlet << ','
+        << fluid.avg_density_outlet << ','
+        << fluid.avg_uz_inlet << ','
+        << fluid.avg_uz_outlet << ','
+        << fluid.mass_flux_in << ','
+        << fluid.mass_flux_out << ','
+        << particles.active_particles << ','
+        << particles.injected_total << ','
+        << particles.dropped_total << ','
+        << particles.exited_total << ','
+        << particles.avg_particle_speed << ','
+        << particles.total_reaction_x << ','
+        << particles.total_reaction_y << ','
+        << particles.total_reaction_z << ','
+        << particles.total_reaction_mag << '\n';
 }
 
 std::string paddedStep(int step)
@@ -172,19 +359,14 @@ std::string paddedStep(int step)
     return std::string(6 - std::min<int>(6, s.size()), '0') + s;
 }
 
-void writeFluidVTI(
-    const std::string& filename,
-    const SpaceData& space,
-    const FluidData& fluid
-
-) {
+void writeFluidVTI(const std::string& filename, const SpaceData& space, const FluidData& fluid)
+{
     std::vector<double> rho(space.num_cells);
     std::vector<double> ux(space.num_cells);
     std::vector<double> uy(space.num_cells);
     std::vector<double> uz(space.num_cells);
 
-    const std::size_t bytes =
-        static_cast<std::size_t>(space.num_cells) * sizeof(double);
+    const std::size_t bytes = static_cast<std::size_t>(space.num_cells) * sizeof(double);
     if (!cudaOk(cudaMemcpy(rho.data(), fluid.density, bytes, cudaMemcpyDeviceToHost),
                 "copy density for VTI") ||
         !cudaOk(cudaMemcpy(ux.data(), fluid.velocity_x, bytes, cudaMemcpyDeviceToHost),
@@ -195,8 +377,8 @@ void writeFluidVTI(
                 "copy velocity_z for VTI")) {
         throw std::runtime_error("Failed to copy fluid data for VTI");
     }
-    std::ofstream out(filename);
 
+    std::ofstream out(filename);
     if (!out) {
         throw std::runtime_error("Cannot open VTI file: " + filename);
     }
@@ -219,19 +401,16 @@ void writeFluidVTI(
     out << "\n        </DataArray>\n";
     out << "        <DataArray type=\"Float64\" Name=\"speed\" format=\"ascii\">\n";
     for (int i = 0; i < space.num_cells; ++i) {
-        const double speed = std::sqrt(ux[i]*ux[i] + uy[i]*uy[i] + uz[i]*uz[i]);
+        const double speed = std::sqrt(ux[i] * ux[i] + uy[i] * uy[i] + uz[i] * uz[i]);
         out << speed << " ";
     }
     out << "\n        </DataArray>\n";
     out << "        <DataArray type=\"Int32\" Name=\"cell_type\" format=\"ascii\">\n";
-
     for (int i = 0; i < space.num_cells; ++i) {
         out << static_cast<int>(space.h_cell_type[i]) << " ";
     }
-
     out << "\n        </DataArray>\n";
-    out << "        <DataArray type=\"Float64\" Name=\"velocity\" "
-        << "NumberOfComponents=\"3\" format=\"ascii\">\n";
+    out << "        <DataArray type=\"Float64\" Name=\"velocity\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (int i = 0; i < space.num_cells; ++i) {
         out << ux[i] << " " << uy[i] << " " << uz[i] << " ";
     }
@@ -242,28 +421,152 @@ void writeFluidVTI(
     out << "</VTKFile>\n";
 }
 
+void writeParticleVTP(const std::string& filename, const SpaceData& space, const ParticleData& particles)
+{
+    std::ofstream out(filename);
+    if (!out) {
+        throw std::runtime_error("Cannot open VTP file: " + filename);
+    }
+
+    if (particles.n <= 0) {
+        out << "<?xml version=\"1.0\"?>\n";
+        out << "<VTKFile type=\"PolyData\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+        out << "  <PolyData><Piece NumberOfPoints=\"0\" NumberOfVerts=\"0\"/></PolyData>\n";
+        out << "</VTKFile>\n";
+        return;
+    }
+
+    const std::size_t n = static_cast<std::size_t>(particles.n);
+    std::vector<int> active(n), species(n), contact_count(n);
+    std::vector<double> x(n), y(n), z(n), vx(n), vy(n), vz(n), fx(n), fy(n), fz(n);
+    std::vector<double> wx(n), wy(n), wz(n), qw(n), qx(n), qy(n), qz(n), radius(n), a(n), b(n), c(n);
+
+    cudaMemcpy(active.data(), particles.active, n * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(species.data(), particles.species, n * sizeof(ParticleSpecies), cudaMemcpyDeviceToHost);
+    cudaMemcpy(contact_count.data(), particles.contact_count, n * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(x.data(), particles.x, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(y.data(), particles.y, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(z.data(), particles.z, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(vx.data(), particles.vx, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(vy.data(), particles.vy, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(vz.data(), particles.vz, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(fx.data(), particles.fx, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(fy.data(), particles.fy, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(fz.data(), particles.fz, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(wx.data(), particles.wx, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(wy.data(), particles.wy, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(wz.data(), particles.wz, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(qw.data(), particles.qw, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(qx.data(), particles.qx, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(qy.data(), particles.qy, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(qz.data(), particles.qz, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(radius.data(), particles.radius, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(a.data(), particles.a, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(b.data(), particles.b, n * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(c.data(), particles.c, n * sizeof(double), cudaMemcpyDeviceToHost);
+
+    std::vector<int> ids;
+    ids.reserve(n);
+    for (int i = 0; i < particles.n; ++i) {
+        if (active[static_cast<std::size_t>(i)]) {
+            ids.push_back(i);
+        }
+    }
+
+    out << "<?xml version=\"1.0\"?>\n";
+    out << "<VTKFile type=\"PolyData\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+    out << "  <PolyData>\n";
+    out << "    <Piece NumberOfPoints=\"" << ids.size() << "\" NumberOfVerts=\"" << ids.size() << "\">\n";
+    out << "      <Points>\n";
+    out << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
+    for (int id : ids) {
+        const std::size_t i = static_cast<std::size_t>(id);
+        out << space.x0 + (x[i] + 0.5) * space.dx << " "
+            << space.y0 + (y[i] + 0.5) * space.dy << " "
+            << space.z0 + (z[i] + 0.5) * space.dz << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "      </Points>\n";
+    out << "      <Verts>\n";
+    out << "        <DataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\">\n";
+    for (std::size_t i = 0; i < ids.size(); ++i) out << i << " ";
+    out << "\n        </DataArray>\n";
+    out << "        <DataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\">\n";
+    for (std::size_t i = 0; i < ids.size(); ++i) out << i + 1 << " ";
+    out << "\n        </DataArray>\n";
+    out << "      </Verts>\n";
+    out << "      <PointData>\n";
+
+    auto writeScalarInt = [&](const char* name, const std::vector<int>& values) {
+        out << "        <DataArray type=\"Int32\" Name=\"" << name << "\" format=\"ascii\">\n";
+        for (int id : ids) out << values[static_cast<std::size_t>(id)] << " ";
+        out << "\n        </DataArray>\n";
+    };
+    auto writeScalarDouble = [&](const char* name, const std::vector<double>& values) {
+        out << "        <DataArray type=\"Float64\" Name=\"" << name << "\" format=\"ascii\">\n";
+        for (int id : ids) out << values[static_cast<std::size_t>(id)] << " ";
+        out << "\n        </DataArray>\n";
+    };
+    auto writeVector = [&](const char* name, const std::vector<double>& vxv, const std::vector<double>& vyv, const std::vector<double>& vzv) {
+        out << "        <DataArray type=\"Float64\" Name=\"" << name << "\" NumberOfComponents=\"3\" format=\"ascii\">\n";
+        for (int id : ids) {
+            const std::size_t i = static_cast<std::size_t>(id);
+            out << vxv[i] << " " << vyv[i] << " " << vzv[i] << " ";
+        }
+        out << "\n        </DataArray>\n";
+    };
+
+    writeScalarInt("species", species);
+    writeScalarInt("active", active);
+    writeScalarInt("contact_count", contact_count);
+    writeScalarDouble("radius", radius);
+    writeVector("velocity", vx, vy, vz);
+    writeVector("force", fx, fy, fz);
+    writeVector("angular_velocity", wx, wy, wz);
+    writeVector("axes", a, b, c);
+    out << "        <DataArray type=\"Float64\" Name=\"quaternion\" NumberOfComponents=\"4\" format=\"ascii\">\n";
+    for (int id : ids) {
+        const std::size_t i = static_cast<std::size_t>(id);
+        out << qw[i] << " " << qx[i] << " " << qy[i] << " " << qz[i] << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "      </PointData>\n";
+    out << "    </Piece>\n";
+    out << "  </PolyData>\n";
+    out << "</VTKFile>\n";
+}
+
 } // namespace
 
 int main(int argc, char** argv)
 {
-    const std::string mesh_file = argc > 1 ? argv[1] : "msh/voxel_domain.bin";
-    const int steps = parseIntArg(argv, argc, 2, 200);
-    const int output_interval = parseIntArg(argv, argc, 3, 20);
-    const double tau = parseDoubleArg(argv, argc, 4, 0.8);
+    RuntimeConfig config;
+    try {
+        config = parseArgs(argc, argv);
+    } catch (const std::exception& ex) {
+        std::cerr << ex.what() << '\n';
+        return 1;
+    }
+
     const double dt = 1.0;
 
-    if (steps < 0) {
+    if (config.steps < 0) {
         std::cerr << "steps must be non-negative\n";
         return 1;
     }
 
-    if (output_interval <= 0) {
+    if (config.output_interval <= 0) {
         std::cerr << "output_interval must be positive\n";
         return 1;
     }
 
-    if (tau <= 0.5) {
+    if (config.tau <= 0.5) {
         std::cerr << "tau must be greater than 0.5 for a stable BGK LBM run\n";
+        return 1;
+    }
+
+    if (config.particles.max_particles < 0) {
+        std::cerr << "--max-particles must be non-negative\n";
         return 1;
     }
 
@@ -272,7 +575,7 @@ int main(int argc, char** argv)
     }
 
     SpaceSystem space;
-    if (!space.initialize(mesh_file.c_str(), dt)) {
+    if (!space.initialize(config.mesh_file.c_str(), dt)) {
         return 1;
     }
 
@@ -284,9 +587,29 @@ int main(int argc, char** argv)
         << " cells, inlets=" << domain.num_inlets
         << ", outlets=" << domain.num_outlets << '\n';
 
-    LBMSystem lbm(domain, dt, tau);
+    LBMSystem lbm(domain, dt, config.tau);
+    ForceModel force_model;
+    ParticleSystem particle_system;
+    const bool particles_enabled = config.particles.max_particles > 0;
 
-    if (!cudaOk(cudaDeviceSynchronize(), "initial LBM synchronization")) {
+    ParticleForceParameters force_params;
+    force_params.tau = config.tau;
+    force_params.contact_stiffness = config.particles.contact_stiffness;
+    force_params.contact_damping = config.particles.contact_damping;
+    force_params.friction = config.particles.friction;
+    force_params.wall_stiffness = config.particles.wall_stiffness;
+    force_params.wall_damping = config.particles.wall_damping;
+
+    if (particles_enabled) {
+        particle_system.allocate(config.particles.max_particles, domain.num_cells);
+        std::cout
+            << "Particles enabled: capacity=" << config.particles.max_particles
+            << ", rbc_rate=" << config.particles.rbc_rate
+            << ", platelet_rate=" << config.particles.platelet_rate
+            << ", leukocyte_rate=" << config.particles.leukocyte_rate << '\n';
+    }
+
+    if (!cudaOk(cudaDeviceSynchronize(), "initial synchronization")) {
         return 1;
     }
 
@@ -297,29 +620,91 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    stats_file << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,mass_flux_in,mass_flux_out\n";
-    writeStats(stats_file, 0, computeFluidStats(domain, lbm.data()));
-    writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
+    stats_file
+        << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,"
+        << "avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,"
+        << "mass_flux_in,mass_flux_out,"
+        << "active_particles,injected_total,dropped_total,exited_total,avg_particle_speed,"
+        << "total_reaction_x,total_reaction_y,total_reaction_z,total_reaction_mag\n";
 
-    for (int step = 1; step <= steps; ++step) {
+    writeStats(
+        stats_file,
+        0,
+        computeFluidStats(domain, lbm.data()),
+        particles_enabled ? computeParticleStats(particle_system.data(), lbm.data(), domain.num_cells)
+                          : ParticleStats{});
+    writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
+    if (particles_enabled) {
+        writeParticleVTP("output/particles_000000.vtp", domain, particle_system.data());
+    }
+
+    InjectionAccumulator injection;
+
+    for (int step = 1; step <= config.steps; ++step) {
+        if (particles_enabled) {
+            const int rbc_count = injectionCount(config.particles.rbc_rate, injection.rbc);
+            const int platelet_count = injectionCount(config.particles.platelet_rate, injection.platelet);
+            const int leukocyte_count = injectionCount(config.particles.leukocyte_rate, injection.leukocyte);
+
+            force_model.injectParticles(
+                particle_system.data(),
+                domain,
+                lbm.data(),
+                step,
+                rbc_count,
+                platelet_count,
+                leukocyte_count);
+
+            particle_system.resetForces();
+            force_model.resetFluidForces(lbm.data(), domain.num_cells);
+            particle_system.resetCellList();
+            particle_system.buildCellList(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
+            force_model.computeFluidForces(particle_system.data(), lbm.data(), domain, force_params);
+            force_model.computeParticleForces(particle_system.data(), particle_system.cellList(), domain, force_params);
+            force_model.computeWallForces(particle_system.data(), domain, force_params);
+            particle_system.updateVelocity(dt);
+            particle_system.updateAngularVelocity(dt);
+            particle_system.updatePosition(dt);
+            particle_system.updateOrientation(dt);
+            particle_system.deactivateExited(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
+            particle_system.swapForces();
+        }
+
         lbm.step();
 
-        if (!cudaOk(cudaGetLastError(), "LBM kernel launch") ||
-            !cudaOk(cudaDeviceSynchronize(), "LBM step synchronization")) {
+        if (!cudaOk(cudaGetLastError(), "simulation kernel launch") ||
+            !cudaOk(cudaDeviceSynchronize(), "simulation step synchronization")) {
             return 1;
         }
 
-        if (step % output_interval == 0 || step == steps) {
-            const FluidStats stats = computeFluidStats(domain, lbm.data());
-            writeStats(stats_file, step, stats);
+        const bool fluid_output_due = step % config.output_interval == 0 || step == config.steps;
+        const bool particle_output_due =
+            particles_enabled &&
+            (step % config.particles.particle_output_interval == 0 || step == config.steps);
+
+        if (fluid_output_due) {
+            const FluidStats fluid_stats = computeFluidStats(domain, lbm.data());
+            const ParticleStats particle_stats =
+                particles_enabled ? computeParticleStats(particle_system.data(), lbm.data(), domain.num_cells)
+                                  : ParticleStats{};
+            writeStats(stats_file, step, fluid_stats, particle_stats);
 
             const std::string filename = "output/fluid_" + paddedStep(step) + ".vti";
             writeFluidVTI(filename, domain, lbm.data());
 
             std::cout
                 << "step " << step
-                << " avg_uz=" << stats.avg_uz
-                << " max_speed=" << stats.max_speed << '\n';
+                << " avg_uz=" << fluid_stats.avg_uz
+                << " max_speed=" << fluid_stats.max_speed;
+            if (particles_enabled) {
+                std::cout << " active_particles=" << particle_stats.active_particles;
+            }
+            std::cout << '\n';
+        }
+
+        if (particle_output_due) {
+            const std::string filename = "output/particles_" + paddedStep(step) + ".vtp";
+            writeParticleVTP(filename, domain, particle_system.data());
         }
     }
 
