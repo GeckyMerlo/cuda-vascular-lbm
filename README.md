@@ -291,6 +291,7 @@ Main subsystems:
 - A C++17 compiler supported by CUDA.
 - NVIDIA CUDA Toolkit with `nvcc`.
 - NVIDIA GPU compatible with the configured CUDA architectures.
+- Optional for the wrapper workflow: GNU Make or another compatible `make`.
 
 The CMake project enables CUDA and C++:
 
@@ -334,6 +335,56 @@ python -m pip install gmsh trimesh numpy tqdm rtree
 Use a fresh out-of-source build directory. The checked-in `build/` directory may
 contain stale cache files from another machine, so prefer creating a new build
 folder.
+
+### Makefile Wrapper
+
+The repository includes a top-level `Makefile` with editable variables for the
+mesh path, number of steps, output interval, `tau`, particle capacity, injection
+rates, and contact parameters.
+
+Build:
+
+```powershell
+make build
+```
+
+Run with the hardcoded particle-enabled arguments in `Makefile`:
+
+```powershell
+make run
+```
+
+Run the same mesh as a fluid-only baseline:
+
+```powershell
+make run-fluid
+```
+
+Print the exact particle run command before executing it:
+
+```powershell
+make print-args
+```
+
+Clean generated build/output folders:
+
+```powershell
+make clean
+make clean-output
+```
+
+Before running `make run`, edit these variables near the top of `Makefile`:
+
+```make
+MESH_FILE := msh/voxel_domain.bin
+STEPS := 300
+OUTPUT_INTERVAL := 20
+TAU := 0.8
+MAX_PARTICLES := 5000
+RBC_RATE := 2
+PLATELET_RATE := 0.2
+LEUKOCYTE_RATE := 0.02
+```
 
 ### Windows PowerShell
 
