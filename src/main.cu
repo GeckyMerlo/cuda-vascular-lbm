@@ -108,14 +108,20 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
             stats.inlet_cells++;
             stats.avg_density_inlet += r;
             stats.avg_uz_inlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
-            stats.mass_flux_in += r * ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];;
+            stats.mass_flux_in += r * (
+                ux[id] * space.h_normals[3 * id] +
+                uy[id] * space.h_normals[3 * id + 1] +
+                uz[id] * space.h_normals[3 * id + 2]);
         }
 
         if (type == OUTLET) {
             stats.outlet_cells++;
             stats.avg_density_outlet += r;
             stats.avg_uz_outlet += ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];
-            stats.mass_flux_out += r * ux[id]*space.h_normals[3 * id] + uy[id]*space.h_normals[3 * id + 1] + uz[id]*space.h_normals[3 * id + 2];;
+            stats.mass_flux_out += r * (
+                ux[id] * space.h_normals[3 * id] +
+                uy[id] * space.h_normals[3 * id + 1] +
+                uz[id] * space.h_normals[3 * id + 2]);
         }
     }
 
