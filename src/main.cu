@@ -61,11 +61,14 @@ struct ParticleConfig {
     double platelet_rate = 0.0;
     double leukocyte_rate = 0.0;
     int particle_output_interval = 0;
-    double contact_stiffness = 0.05;
-    double contact_damping = 0.02;
+    int substeps = 4;
+    double contact_stiffness = 0.02;
+    double contact_damping = 0.04;
     double friction = 0.2;
-    double wall_stiffness = 0.08;
-    double wall_damping = 0.02;
+    double wall_stiffness = 0.03;
+    double wall_damping = 0.04;
+    double max_particle_force = 0.02;
+    double max_particle_speed = 0.05;
 };
 
 struct RuntimeConfig {
@@ -142,6 +145,8 @@ RuntimeConfig parseArgs(int argc, char** argv)
             config.particles.leukocyte_rate = std::stod(value);
         } else if (name == "--particle-output-interval") {
             config.particles.particle_output_interval = std::stoi(value);
+        } else if (name == "--particle-substeps") {
+            config.particles.substeps = std::stoi(value);
         } else if (name == "--contact-stiffness") {
             config.particles.contact_stiffness = std::stod(value);
         } else if (name == "--contact-damping") {
@@ -152,6 +157,10 @@ RuntimeConfig parseArgs(int argc, char** argv)
             config.particles.wall_stiffness = std::stod(value);
         } else if (name == "--wall-damping") {
             config.particles.wall_damping = std::stod(value);
+        } else if (name == "--max-particle-force") {
+            config.particles.max_particle_force = std::stod(value);
+        } else if (name == "--max-particle-speed") {
+            config.particles.max_particle_speed = std::stod(value);
         } else {
             throw std::runtime_error("Unknown option: " + name);
         }
@@ -671,6 +680,21 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    if (config.particles.substeps <= 0) {
+        std::cerr << "--particle-substeps must be positive\n";
+        return 1;
+    }
+
+    if (config.particles.max_particle_force < 0.0) {
+        std::cerr << "--max-particle-force must be non-negative\n";
+        return 1;
+    }
+
+    if (config.particles.max_particle_speed < 0.0) {
+        std::cerr << "--max-particle-speed must be non-negative\n";
+        return 1;
+    }
+
     if (!cudaOk(cudaSetDevice(0), "cudaSetDevice")) {
         return 1;
     }
@@ -700,6 +724,8 @@ int main(int argc, char** argv)
     force_params.friction = config.particles.friction;
     force_params.wall_stiffness = config.particles.wall_stiffness;
     force_params.wall_damping = config.particles.wall_damping;
+    force_params.max_particle_force = config.particles.max_particle_force;
+    force_params.max_particle_speed = config.particles.max_particle_speed;
 
     if (particles_enabled) {
         particle_system.allocate(config.particles.max_particles, domain.num_cells);
@@ -707,7 +733,10 @@ int main(int argc, char** argv)
             << "Particles enabled: capacity=" << config.particles.max_particles
             << ", rbc_rate=" << config.particles.rbc_rate
             << ", platelet_rate=" << config.particles.platelet_rate
-            << ", leukocyte_rate=" << config.particles.leukocyte_rate << '\n';
+            << ", leukocyte_rate=" << config.particles.leukocyte_rate
+            << ", substeps=" << config.particles.substeps
+            << ", max_particle_force=" << config.particles.max_particle_force
+            << ", max_particle_speed=" << config.particles.max_particle_speed << '\n';
     }
 
     if (!cudaOk(cudaDeviceSynchronize(), "initial synchronization")) {
@@ -758,19 +787,28 @@ int main(int argc, char** argv)
                 platelet_count,
                 leukocyte_count);
 
-            particle_system.resetForces();
             force_model.resetFluidForces(lbm.data(), domain.num_cells);
-            particle_system.resetCellList();
-            particle_system.buildCellList(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
-            force_model.computeFluidForces(particle_system.data(), lbm.data(), domain, force_params);
-            force_model.computeParticleForces(particle_system.data(), particle_system.cellList(), domain, force_params);
-            force_model.computeWallForces(particle_system.data(), domain, force_params);
-            particle_system.updateVelocity(dt);
-            particle_system.updateAngularVelocity(dt);
-            particle_system.updatePosition(dt);
-            particle_system.updateOrientation(dt);
-            particle_system.deactivateExited(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
-            particle_system.swapForces();
+            const double particle_dt = dt / static_cast<double>(config.particles.substeps);
+            ParticleForceParameters substep_params = force_params;
+            substep_params.fluid_reaction_scale = 1.0 / static_cast<double>(config.particles.substeps);
+
+            for (int substep = 0; substep < config.particles.substeps; ++substep) {
+                particle_system.resetForces();
+                particle_system.resetCellList();
+                particle_system.buildCellList(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
+                force_model.computeFluidForces(particle_system.data(), lbm.data(), domain, substep_params);
+                force_model.computeParticleForces(particle_system.data(), particle_system.cellList(), domain, substep_params);
+                force_model.computeWallForces(particle_system.data(), domain, substep_params);
+                particle_system.clampForces(config.particles.max_particle_force);
+                particle_system.updateVelocity(particle_dt);
+                particle_system.clampVelocities(config.particles.max_particle_speed);
+                particle_system.updateAngularVelocity(particle_dt);
+                particle_system.updatePosition(particle_dt);
+                particle_system.clampVelocities(config.particles.max_particle_speed);
+                particle_system.updateOrientation(particle_dt);
+                particle_system.deactivateExited(domain.d_cell_type, domain.nx, domain.ny, domain.nz);
+                particle_system.swapForces();
+            }
         }
 
         lbm.step();

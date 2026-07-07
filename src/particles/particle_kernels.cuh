@@ -75,6 +75,73 @@ __global__ void updatePosition(
     }
 }
 
+__global__ void clampForces_kernel(
+    double* x_forces,
+    double* y_forces,
+    double* z_forces,
+    const int* active,
+    int num_particles,
+    double max_force)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_particles || !active[idx]) return;
+
+    double fx = x_forces[idx];
+    double fy = y_forces[idx];
+    double fz = z_forces[idx];
+
+    if (!isfinite(fx) || !isfinite(fy) || !isfinite(fz)) {
+        x_forces[idx] = 0.0;
+        y_forces[idx] = 0.0;
+        z_forces[idx] = 0.0;
+        return;
+    }
+
+    if (max_force <= 0.0) return;
+
+    double mag = sqrt(fx * fx + fy * fy + fz * fz);
+    if (mag > max_force && mag > 1e-16) {
+        double scale = max_force / mag;
+        x_forces[idx] = fx * scale;
+        y_forces[idx] = fy * scale;
+        z_forces[idx] = fz * scale;
+    }
+}
+
+__global__ void clampVelocities_kernel(
+    double* x,
+    double* y,
+    double* z,
+    double* vx,
+    double* vy,
+    double* vz,
+    int* active,
+    int num_particles,
+    double max_speed)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_particles || !active[idx]) return;
+
+    if (!isfinite(x[idx]) || !isfinite(y[idx]) || !isfinite(z[idx]) ||
+        !isfinite(vx[idx]) || !isfinite(vy[idx]) || !isfinite(vz[idx])) {
+        active[idx] = 0;
+        vx[idx] = 0.0;
+        vy[idx] = 0.0;
+        vz[idx] = 0.0;
+        return;
+    }
+
+    if (max_speed <= 0.0) return;
+
+    double speed = sqrt(vx[idx] * vx[idx] + vy[idx] * vy[idx] + vz[idx] * vz[idx]);
+    if (speed > max_speed && speed > 1e-16) {
+        double scale = max_speed / speed;
+        vx[idx] *= scale;
+        vy[idx] *= scale;
+        vz[idx] *= scale;
+    }
+}
+
 __global__ void resetForces(
     double *x_forces, double *y_forces, double *z_forces,
     double *tx_forces, double *ty_forces, double *tz_forces,
@@ -230,6 +297,12 @@ __global__ void deactivateExited(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_particles || !active[idx]) return;
+
+    if (!isfinite(x[idx]) || !isfinite(y[idx]) || !isfinite(z[idx])) {
+        active[idx] = 0;
+        atomicAdd(exited_total, 1);
+        return;
+    }
 
     int cell_id = nearestCellIdFromParticlePosition(x[idx], y[idx], z[idx], nx, ny, nz);
     if (cell_id < 0 || cell_type[cell_id] == OUTLET) {

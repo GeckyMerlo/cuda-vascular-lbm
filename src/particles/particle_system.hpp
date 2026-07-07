@@ -20,6 +20,8 @@ public:
     void resetForces();
     void updateVelocity(double dt);
     void updatePosition(double dt);
+    void clampForces(double max_force);
+    void clampVelocities(double max_speed);
     void updateAngularVelocity(double dt);
     void updateOrientation(double dt);
     void swapForces();

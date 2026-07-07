@@ -6,11 +6,14 @@
 
 struct ParticleForceParameters {
     double tau = 0.8;
-    double contact_stiffness = 0.05;
-    double contact_damping = 0.02;
+    double contact_stiffness = 0.02;
+    double contact_damping = 0.04;
     double friction = 0.2;
-    double wall_stiffness = 0.08;
-    double wall_damping = 0.02;
+    double wall_stiffness = 0.03;
+    double wall_damping = 0.04;
+    double max_particle_force = 0.02;
+    double max_particle_speed = 0.05;
+    double fluid_reaction_scale = 1.0;
 };
 
 class ForceModel {

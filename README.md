@@ -380,13 +380,16 @@ Before running `make run`, edit these variables near the top of `Makefile`:
 
 ```make
 MESH_FILE := msh/voxel_domain.bin
-STEPS := 300
-OUTPUT_INTERVAL := 20
+STEPS := 50000
+OUTPUT_INTERVAL := 200
 TAU := 0.8
-MAX_PARTICLES := 5000
-RBC_RATE := 2
-PLATELET_RATE := 0.2
+MAX_PARTICLES := 10000
+RBC_RATE := 0.05
+PLATELET_RATE := 0.02
 LEUKOCYTE_RATE := 0.02
+PARTICLE_SUBSTEPS := 4
+MAX_PARTICLE_FORCE := 0.02
+MAX_PARTICLE_SPEED := 0.05
 ```
 
 ### Windows PowerShell
@@ -493,11 +496,14 @@ The same command in one line:
 | `--platelet-rate` | `0.0` | Platelet injection attempts per step. |
 | `--leukocyte-rate` | `0.0` | Leukocyte injection attempts per step. |
 | `--particle-output-interval` | fluid interval | Particle VTP output interval. |
-| `--contact-stiffness` | `0.05` | Sphere-contact spring stiffness. |
-| `--contact-damping` | `0.02` | Contact damping. |
+| `--particle-substeps` | `4` | Particle integration substeps per LBM step. Fluid reaction is averaged over these substeps. |
+| `--contact-stiffness` | `0.02` | Sphere-contact spring stiffness. |
+| `--contact-damping` | `0.04` | Contact damping. |
 | `--friction` | `0.2` | Tangential friction cap coefficient. |
-| `--wall-stiffness` | `0.08` | Minimal wall repulsion stiffness. |
-| `--wall-damping` | `0.02` | Minimal wall repulsion damping. |
+| `--wall-stiffness` | `0.03` | Minimal wall repulsion stiffness. |
+| `--wall-damping` | `0.04` | Minimal wall repulsion damping. |
+| `--max-particle-force` | `0.02` | Per-particle force cap before integration. Set `0` to disable. |
+| `--max-particle-speed` | `0.05` | Per-particle speed cap after velocity updates. Set `0` to disable. |
 
 Options can be written either as:
 

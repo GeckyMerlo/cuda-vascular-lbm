@@ -303,7 +303,9 @@ __global__ void computeDragAndFluidReaction_kernel(
     double* force_y,
     double* force_z,
     SpaceData space,
-    double tau)
+    double tau,
+    double max_particle_force,
+    double fluid_reaction_scale)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= p.n || !p.active[idx]) return;
@@ -341,15 +343,31 @@ __global__ void computeDragAndFluidReaction_kernel(
     double drag_y = drag_scale * (uy - p.vy[idx]);
     double drag_z = drag_scale * (uz - p.vz[idx]);
 
+    if (!isfinite(drag_x) || !isfinite(drag_y) || !isfinite(drag_z)) {
+        p.active[idx] = 0;
+        return;
+    }
+
+    if (max_particle_force > 0.0) {
+        double drag_mag = sqrt(drag_x * drag_x + drag_y * drag_y + drag_z * drag_z);
+        if (drag_mag > max_particle_force && drag_mag > 1e-16) {
+            double scale = max_particle_force / drag_mag;
+            drag_x *= scale;
+            drag_y *= scale;
+            drag_z *= scale;
+        }
+    }
+
     p.fx[idx] += drag_x;
     p.fy[idx] += drag_y;
     p.fz[idx] += drag_z;
 
+    double reaction_scale = fluid_reaction_scale > 0.0 ? fluid_reaction_scale : 0.0;
     for (int i = 0; i < 8; ++i) {
         int id = ids[i];
         if (id < 0) continue;
 
-        double w = weights[i];
+        double w = weights[i] * reaction_scale;
         atomicAdd(&force_x[id], -drag_x * w);
         atomicAdd(&force_y[id], -drag_y * w);
         atomicAdd(&force_z[id], -drag_z * w);
@@ -604,7 +622,9 @@ void ForceModel::computeFluidForces(
         fluid.force_y,
         fluid.force_z,
         space,
-        params.tau
+        params.tau,
+        params.max_particle_force,
+        params.fluid_reaction_scale
     );
 }
 

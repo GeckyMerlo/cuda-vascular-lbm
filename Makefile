@@ -53,17 +53,20 @@ TAU := 0.8
 
 # Particle simulation arguments. Set MAX_PARTICLES to 0 to disable particles.
 MAX_PARTICLES := 10000
-RBC_RATE := 0.001
-PLATELET_RATE := 0.0002
-LEUKOCYTE_RATE := 0.00002
+RBC_RATE := 0.05
+PLATELET_RATE := 0.02
+LEUKOCYTE_RATE := 0.02
 PARTICLE_OUTPUT_INTERVAL := $(OUTPUT_INTERVAL)
+PARTICLE_SUBSTEPS := 4
 
 # Particle interaction parameters.
-CONTACT_STIFFNESS := 0.05
-CONTACT_DAMPING := 0.02
+CONTACT_STIFFNESS := 0.02
+CONTACT_DAMPING := 0.04
 FRICTION := 0.2
-WALL_STIFFNESS := 0.08
-WALL_DAMPING := 0.02
+WALL_STIFFNESS := 0.03
+WALL_DAMPING := 0.04
+MAX_PARTICLE_FORCE := 0.02
+MAX_PARTICLE_SPEED := 0.05
 
 SIM_ARGS := \
 	$(MESH_FILE) \
@@ -75,11 +78,14 @@ SIM_ARGS := \
 	--platelet-rate $(PLATELET_RATE) \
 	--leukocyte-rate $(LEUKOCYTE_RATE) \
 	--particle-output-interval $(PARTICLE_OUTPUT_INTERVAL) \
+	--particle-substeps $(PARTICLE_SUBSTEPS) \
 	--contact-stiffness $(CONTACT_STIFFNESS) \
 	--contact-damping $(CONTACT_DAMPING) \
 	--friction $(FRICTION) \
 	--wall-stiffness $(WALL_STIFFNESS) \
-	--wall-damping $(WALL_DAMPING)
+	--wall-damping $(WALL_DAMPING) \
+	--max-particle-force $(MAX_PARTICLE_FORCE) \
+	--max-particle-speed $(MAX_PARTICLE_SPEED)
 
 FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU)
 

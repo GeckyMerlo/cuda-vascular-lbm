@@ -284,6 +284,47 @@ void ParticleSystem::updatePosition(double dt)
     );
 }
 
+void ParticleSystem::clampForces(double max_force)
+{
+    if (d_particles.n <= 0) {
+        return;
+    }
+
+    int block = 256;
+    int grid = (d_particles.n + block - 1) / block;
+
+    ::clampForces_kernel<<<grid, block>>>(
+        d_particles.fx,
+        d_particles.fy,
+        d_particles.fz,
+        d_particles.active,
+        d_particles.n,
+        max_force
+    );
+}
+
+void ParticleSystem::clampVelocities(double max_speed)
+{
+    if (d_particles.n <= 0) {
+        return;
+    }
+
+    int block = 256;
+    int grid = (d_particles.n + block - 1) / block;
+
+    ::clampVelocities_kernel<<<grid, block>>>(
+        d_particles.x,
+        d_particles.y,
+        d_particles.z,
+        d_particles.vx,
+        d_particles.vy,
+        d_particles.vz,
+        d_particles.active,
+        d_particles.n,
+        max_speed
+    );
+}
+
 void ParticleSystem::updateAngularVelocity(double dt)
 {
     if (d_particles.n <= 0) {
