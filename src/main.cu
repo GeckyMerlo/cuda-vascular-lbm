@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,7 +19,11 @@ namespace {
 
 struct FluidStats {
     int active_cells = 0;
+    int finite_cells = 0;
+    int nonfinite_cells = 0;
     double avg_density = 0.0;
+    double min_density = 0.0;
+    double max_density = 0.0;
     double avg_ux = 0.0;
     double avg_uy = 0.0;
     double avg_uz = 0.0;
@@ -36,6 +41,8 @@ struct FluidStats {
 
 struct ParticleStats {
     int active_particles = 0;
+    int finite_particles = 0;
+    int nonfinite_particles = 0;
     int injected_total = 0;
     int dropped_total = 0;
     int exited_total = 0;
@@ -196,16 +203,30 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
     }
 
     FluidStats stats;
+    double min_density = std::numeric_limits<double>::infinity();
+    double max_density = -std::numeric_limits<double>::infinity();
 
     for (int id = 0; id < space.num_cells; ++id) {
         if (space.h_cell_type[id] == SOLID) {
             continue;
         }
 
+        stats.active_cells += 1;
+
+        if (!std::isfinite(rho[id]) ||
+            !std::isfinite(ux[id]) ||
+            !std::isfinite(uy[id]) ||
+            !std::isfinite(uz[id])) {
+            stats.nonfinite_cells += 1;
+            continue;
+        }
+
         const double speed = std::sqrt(ux[id] * ux[id] + uy[id] * uy[id] + uz[id] * uz[id]);
 
-        stats.active_cells += 1;
+        stats.finite_cells += 1;
         stats.avg_density += rho[id];
+        min_density = std::min(min_density, rho[id]);
+        max_density = std::max(max_density, rho[id]);
         stats.avg_ux += ux[id];
         stats.avg_uy += uy[id];
         stats.avg_uz += uz[id];
@@ -219,10 +240,11 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
             uz[id] * space.h_normals[3 * id + 2];
 
         if (type == INLET) {
+            const double inward_normal_speed = -normal_dot_u;
             stats.inlet_cells++;
             stats.avg_density_inlet += rho[id];
-            stats.avg_uz_inlet += normal_dot_u;
-            stats.mass_flux_in += rho[id] * normal_dot_u;
+            stats.avg_uz_inlet += inward_normal_speed;
+            stats.mass_flux_in += rho[id] * inward_normal_speed;
         }
 
         if (type == OUTLET) {
@@ -233,13 +255,15 @@ FluidStats computeFluidStats(const SpaceData& space, const FluidData& fluid)
         }
     }
 
-    if (stats.active_cells > 0) {
-        const double inv_cells = 1.0 / static_cast<double>(stats.active_cells);
+    if (stats.finite_cells > 0) {
+        const double inv_cells = 1.0 / static_cast<double>(stats.finite_cells);
         stats.avg_density *= inv_cells;
         stats.avg_ux *= inv_cells;
         stats.avg_uy *= inv_cells;
         stats.avg_uz *= inv_cells;
         stats.avg_speed *= inv_cells;
+        stats.min_density = min_density;
+        stats.max_density = max_density;
     }
 
     if (stats.inlet_cells > 0) {
@@ -288,14 +312,22 @@ ParticleStats computeParticleStats(const ParticleData& particles, const FluidDat
         }
 
         stats.active_particles++;
+        if (!std::isfinite(vx[static_cast<std::size_t>(i)]) ||
+            !std::isfinite(vy[static_cast<std::size_t>(i)]) ||
+            !std::isfinite(vz[static_cast<std::size_t>(i)])) {
+            stats.nonfinite_particles++;
+            continue;
+        }
+
+        stats.finite_particles++;
         stats.avg_particle_speed += std::sqrt(
             vx[static_cast<std::size_t>(i)] * vx[static_cast<std::size_t>(i)] +
             vy[static_cast<std::size_t>(i)] * vy[static_cast<std::size_t>(i)] +
             vz[static_cast<std::size_t>(i)] * vz[static_cast<std::size_t>(i)]);
     }
 
-    if (stats.active_particles > 0) {
-        stats.avg_particle_speed /= static_cast<double>(stats.active_particles);
+    if (stats.finite_particles > 0) {
+        stats.avg_particle_speed /= static_cast<double>(stats.finite_particles);
     }
 
     std::vector<double> fx(static_cast<std::size_t>(num_cells));
@@ -330,7 +362,11 @@ void writeStats(std::ofstream& output, int step, const FluidStats& fluid, const 
     output
         << step << ','
         << fluid.active_cells << ','
+        << fluid.finite_cells << ','
+        << fluid.nonfinite_cells << ','
         << fluid.avg_density << ','
+        << fluid.min_density << ','
+        << fluid.max_density << ','
         << fluid.avg_ux << ','
         << fluid.avg_uy << ','
         << fluid.avg_uz << ','
@@ -343,6 +379,8 @@ void writeStats(std::ofstream& output, int step, const FluidStats& fluid, const 
         << fluid.mass_flux_in << ','
         << fluid.mass_flux_out << ','
         << particles.active_particles << ','
+        << particles.finite_particles << ','
+        << particles.nonfinite_particles << ','
         << particles.injected_total << ','
         << particles.dropped_total << ','
         << particles.exited_total << ','
@@ -383,26 +421,47 @@ void writeFluidVTI(const std::string& filename, const SpaceData& space, const Fl
         throw std::runtime_error("Cannot open VTI file: " + filename);
     }
 
+    auto finiteOrZero = [](double value) {
+        return std::isfinite(value) ? value : 0.0;
+    };
+
+    auto finiteCell = [&](int i) {
+        return std::isfinite(rho[i]) &&
+               std::isfinite(ux[i]) &&
+               std::isfinite(uy[i]) &&
+               std::isfinite(uz[i]);
+    };
+
     out << "<?xml version=\"1.0\"?>\n";
     out << "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
     out << "  <ImageData WholeExtent=\"0 " << space.nx
         << " 0 " << space.ny
         << " 0 " << space.nz
-        << "\" Origin=\"0 0 0\" Spacing=\""
-        << space.dx << " " << space.dx << " " << space.dx << "\">\n";
+        << "\" Origin=\""
+        << space.x0 << " " << space.y0 << " " << space.z0
+        << "\" Spacing=\""
+        << space.dx << " " << space.dy << " " << space.dz << "\">\n";
     out << "    <Piece Extent=\"0 " << space.nx
         << " 0 " << space.ny
         << " 0 " << space.nz << "\">\n";
     out << "      <CellData Scalars=\"density\" Vectors=\"velocity\">\n";
     out << "        <DataArray type=\"Float64\" Name=\"density\" format=\"ascii\">\n";
     for (int i = 0; i < space.num_cells; ++i) {
-        out << rho[i] << " ";
+        out << finiteOrZero(rho[i]) << " ";
     }
     out << "\n        </DataArray>\n";
     out << "        <DataArray type=\"Float64\" Name=\"speed\" format=\"ascii\">\n";
     for (int i = 0; i < space.num_cells; ++i) {
-        const double speed = std::sqrt(ux[i] * ux[i] + uy[i] * uy[i] + uz[i] * uz[i]);
+        const double vx = finiteOrZero(ux[i]);
+        const double vy = finiteOrZero(uy[i]);
+        const double vz = finiteOrZero(uz[i]);
+        const double speed = std::sqrt(vx * vx + vy * vy + vz * vz);
         out << speed << " ";
+    }
+    out << "\n        </DataArray>\n";
+    out << "        <DataArray type=\"Int32\" Name=\"finite\" format=\"ascii\">\n";
+    for (int i = 0; i < space.num_cells; ++i) {
+        out << (finiteCell(i) ? 1 : 0) << " ";
     }
     out << "\n        </DataArray>\n";
     out << "        <DataArray type=\"Int32\" Name=\"cell_type\" format=\"ascii\">\n";
@@ -412,7 +471,9 @@ void writeFluidVTI(const std::string& filename, const SpaceData& space, const Fl
     out << "\n        </DataArray>\n";
     out << "        <DataArray type=\"Float64\" Name=\"velocity\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (int i = 0; i < space.num_cells; ++i) {
-        out << ux[i] << " " << uy[i] << " " << uz[i] << " ";
+        out << finiteOrZero(ux[i]) << " "
+            << finiteOrZero(uy[i]) << " "
+            << finiteOrZero(uz[i]) << " ";
     }
     out << "\n        </DataArray>\n";
     out << "      </CellData>\n";
@@ -465,10 +526,18 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
     cudaMemcpy(b.data(), particles.b, n * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(c.data(), particles.c, n * sizeof(double), cudaMemcpyDeviceToHost);
 
+    auto finiteOrZero = [](double value) {
+        return std::isfinite(value) ? value : 0.0;
+    };
+
     std::vector<int> ids;
     ids.reserve(n);
     for (int i = 0; i < particles.n; ++i) {
-        if (active[static_cast<std::size_t>(i)]) {
+        const std::size_t idx = static_cast<std::size_t>(i);
+        if (active[idx] &&
+            std::isfinite(x[idx]) &&
+            std::isfinite(y[idx]) &&
+            std::isfinite(z[idx])) {
             ids.push_back(i);
         }
     }
@@ -481,9 +550,9 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
     out << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (int id : ids) {
         const std::size_t i = static_cast<std::size_t>(id);
-        out << space.x0 + (x[i] + 0.5) * space.dx << " "
-            << space.y0 + (y[i] + 0.5) * space.dy << " "
-            << space.z0 + (z[i] + 0.5) * space.dz << " ";
+        out << space.x0 + (finiteOrZero(x[i]) + 0.5) * space.dx << " "
+            << space.y0 + (finiteOrZero(y[i]) + 0.5) * space.dy << " "
+            << space.z0 + (finiteOrZero(z[i]) + 0.5) * space.dz << " ";
     }
     out << "\n        </DataArray>\n";
     out << "      </Points>\n";
@@ -504,14 +573,16 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
     };
     auto writeScalarDouble = [&](const char* name, const std::vector<double>& values) {
         out << "        <DataArray type=\"Float64\" Name=\"" << name << "\" format=\"ascii\">\n";
-        for (int id : ids) out << values[static_cast<std::size_t>(id)] << " ";
+        for (int id : ids) out << finiteOrZero(values[static_cast<std::size_t>(id)]) << " ";
         out << "\n        </DataArray>\n";
     };
     auto writeVector = [&](const char* name, const std::vector<double>& vxv, const std::vector<double>& vyv, const std::vector<double>& vzv) {
         out << "        <DataArray type=\"Float64\" Name=\"" << name << "\" NumberOfComponents=\"3\" format=\"ascii\">\n";
         for (int id : ids) {
             const std::size_t i = static_cast<std::size_t>(id);
-            out << vxv[i] << " " << vyv[i] << " " << vzv[i] << " ";
+            out << finiteOrZero(vxv[i]) << " "
+                << finiteOrZero(vyv[i]) << " "
+                << finiteOrZero(vzv[i]) << " ";
         }
         out << "\n        </DataArray>\n";
     };
@@ -527,7 +598,10 @@ void writeParticleVTP(const std::string& filename, const SpaceData& space, const
     out << "        <DataArray type=\"Float64\" Name=\"quaternion\" NumberOfComponents=\"4\" format=\"ascii\">\n";
     for (int id : ids) {
         const std::size_t i = static_cast<std::size_t>(id);
-        out << qw[i] << " " << qx[i] << " " << qy[i] << " " << qz[i] << " ";
+        out << finiteOrZero(qw[i]) << " "
+            << finiteOrZero(qx[i]) << " "
+            << finiteOrZero(qy[i]) << " "
+            << finiteOrZero(qz[i]) << " ";
     }
     out << "\n        </DataArray>\n";
     out << "      </PointData>\n";
@@ -621,10 +695,12 @@ int main(int argc, char** argv)
     }
 
     stats_file
-        << "step,active_cells,avg_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,"
+        << "step,active_cells,finite_cells,nonfinite_cells,"
+        << "avg_density,min_density,max_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,"
         << "avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,"
         << "mass_flux_in,mass_flux_out,"
-        << "active_particles,injected_total,dropped_total,exited_total,avg_particle_speed,"
+        << "active_particles,finite_particles,nonfinite_particles,"
+        << "injected_total,dropped_total,exited_total,avg_particle_speed,"
         << "total_reaction_x,total_reaction_y,total_reaction_z,total_reaction_mag\n";
 
     writeStats(
@@ -696,8 +772,14 @@ int main(int argc, char** argv)
                 << "step " << step
                 << " avg_uz=" << fluid_stats.avg_uz
                 << " max_speed=" << fluid_stats.max_speed;
+            if (fluid_stats.nonfinite_cells > 0) {
+                std::cout << " nonfinite_cells=" << fluid_stats.nonfinite_cells;
+            }
             if (particles_enabled) {
                 std::cout << " active_particles=" << particle_stats.active_particles;
+                if (particle_stats.nonfinite_particles > 0) {
+                    std::cout << " nonfinite_particles=" << particle_stats.nonfinite_particles;
+                }
             }
             std::cout << '\n';
         }

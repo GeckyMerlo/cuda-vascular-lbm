@@ -299,6 +299,9 @@ def main():
             OUTLET,
             nx, ny, nz
         )
+
+        normal[cell_type == INLET] = mean_inlet_normal
+        normal[cell_type == OUTLET] = mean_outlet_normal
         
         toc(t)
         

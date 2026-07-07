@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -41,6 +42,19 @@ bool isValidCellId(int id, const SpaceData& space)
 int cellId(int x, int y, int z, const SpaceData& space)
 {
     return z * space.nx * space.ny + y * space.nx + x;
+}
+
+bool decodeCellId(int id, const SpaceData& space, int& x, int& y, int& z)
+{
+    if (!isValidCellId(id, space)) {
+        return false;
+    }
+
+    const int xy = space.nx * space.ny;
+    z = id / xy;
+    y = (id % xy) / space.nx;
+    x = id % space.nx;
+    return true;
 }
 
 void freeHost(void* ptr)
@@ -85,6 +99,120 @@ bool allocateAndCopyIds(
     return cudaOk(cudaMemcpy(d_ids, h_ids, bytes, cudaMemcpyHostToDevice), name);
 }
 
+bool inferInteriorDirection(
+    int id,
+    const SpaceData& space,
+    bool fluid_only,
+    double& dir_x,
+    double& dir_y,
+    double& dir_z)
+{
+    int x = 0;
+    int y = 0;
+    int z = 0;
+    if (!decodeCellId(id, space, x, y, z)) {
+        return false;
+    }
+
+    const CellType boundary_type = space.h_cell_type[id];
+    const int dirs[][3] = {
+        {0, 0, -1},
+        {0, 0, 1},
+        {-1, 0, 0},
+        {1, 0, 0},
+        {0, -1, 0},
+        {0, 1, 0},
+    };
+
+    dir_x = 0.0;
+    dir_y = 0.0;
+    dir_z = 0.0;
+
+    for (const auto& d : dirs) {
+        const int nx = x + d[0];
+        const int ny = y + d[1];
+        const int nz = z + d[2];
+        if (nx < 0 || nx >= space.nx ||
+            ny < 0 || ny >= space.ny ||
+            nz < 0 || nz >= space.nz) {
+            continue;
+        }
+
+        const int neighbor_id = cellId(nx, ny, nz, space);
+        const CellType neighbor_type = space.h_cell_type[neighbor_id];
+        if (fluid_only) {
+            if (neighbor_type != FLUID) {
+                continue;
+            }
+        } else if (neighbor_type == SOLID || neighbor_type == boundary_type) {
+            continue;
+        }
+
+        dir_x += static_cast<double>(d[0]);
+        dir_y += static_cast<double>(d[1]);
+        dir_z += static_cast<double>(d[2]);
+    }
+
+    const double norm = std::sqrt(dir_x * dir_x + dir_y * dir_y + dir_z * dir_z);
+    if (norm <= 1e-12) {
+        return false;
+    }
+
+    dir_x /= norm;
+    dir_y /= norm;
+    dir_z /= norm;
+    return true;
+}
+
+void repairBoundaryNormals(SpaceData& space)
+{
+    if (space.h_normals == nullptr) {
+        return;
+    }
+
+    for (int id = 0; id < space.num_cells; ++id) {
+        const CellType type = space.h_cell_type[id];
+        if (type != INLET && type != OUTLET) {
+            continue;
+        }
+
+        double inside_x = 0.0;
+        double inside_y = 0.0;
+        double inside_z = 0.0;
+        bool has_inside = inferInteriorDirection(id, space, true, inside_x, inside_y, inside_z);
+        if (!has_inside) {
+            has_inside = inferInteriorDirection(id, space, false, inside_x, inside_y, inside_z);
+        }
+
+        double normal_x = space.h_normals[3 * id];
+        double normal_y = space.h_normals[3 * id + 1];
+        double normal_z = space.h_normals[3 * id + 2];
+        const double normal_norm =
+            std::sqrt(normal_x * normal_x + normal_y * normal_y + normal_z * normal_z);
+
+        if (normal_norm > 1e-12) {
+            normal_x /= normal_norm;
+            normal_y /= normal_norm;
+            normal_z /= normal_norm;
+
+            if (has_inside &&
+                normal_x * inside_x + normal_y * inside_y + normal_z * inside_z > 0.0) {
+                normal_x = -normal_x;
+                normal_y = -normal_y;
+                normal_z = -normal_z;
+            }
+        } else if (has_inside) {
+            normal_x = -inside_x;
+            normal_y = -inside_y;
+            normal_z = -inside_z;
+        }
+
+        space.h_normals[3 * id] = normal_x;
+        space.h_normals[3 * id + 1] = normal_y;
+        space.h_normals[3 * id + 2] = normal_z;
+    }
+}
+
 int findOutletSourceId(int outlet_id, const SpaceData& space)
 {
     const int xy = space.nx * space.ny;
@@ -100,6 +228,74 @@ int findOutletSourceId(int outlet_id, const SpaceData& space)
         {x, y - 1, z},
         {x, y + 1, z},
     };
+
+    double inward_x = 0.0;
+    double inward_y = 0.0;
+    double inward_z = 0.0;
+    bool has_normal = false;
+
+    if (space.h_normals != nullptr) {
+        const double normal_x = space.h_normals[3 * outlet_id];
+        const double normal_y = space.h_normals[3 * outlet_id + 1];
+        const double normal_z = space.h_normals[3 * outlet_id + 2];
+        const double normal_norm =
+            std::sqrt(normal_x * normal_x + normal_y * normal_y + normal_z * normal_z);
+
+        if (normal_norm > 1e-12) {
+            inward_x = -normal_x / normal_norm;
+            inward_y = -normal_y / normal_norm;
+            inward_z = -normal_z / normal_norm;
+            has_normal = true;
+        }
+    }
+
+    auto chooseCandidate = [&](bool fluid_only) {
+        int best_id = -1;
+        double best_score = -std::numeric_limits<double>::infinity();
+
+        for (const auto& c : candidates) {
+            if (c[0] < 0 || c[0] >= space.nx ||
+                c[1] < 0 || c[1] >= space.ny ||
+                c[2] < 0 || c[2] >= space.nz) {
+                continue;
+            }
+
+            const int id = cellId(c[0], c[1], c[2], space);
+            if (fluid_only) {
+                if (space.h_cell_type[id] != FLUID) {
+                    continue;
+                }
+            } else if (space.h_cell_type[id] == SOLID ||
+                       space.h_cell_type[id] == OUTLET) {
+                continue;
+            }
+
+            double score = 0.0;
+            if (has_normal) {
+                score =
+                    static_cast<double>(c[0] - x) * inward_x +
+                    static_cast<double>(c[1] - y) * inward_y +
+                    static_cast<double>(c[2] - z) * inward_z;
+            }
+
+            if (score > best_score) {
+                best_score = score;
+                best_id = id;
+            }
+        }
+
+        return best_id;
+    };
+
+    const int normal_aligned_fluid = chooseCandidate(true);
+    if (normal_aligned_fluid >= 0) {
+        return normal_aligned_fluid;
+    }
+
+    const int normal_aligned_open = chooseCandidate(false);
+    if (normal_aligned_open >= 0) {
+        return normal_aligned_open;
+    }
 
     for (const auto& c : candidates) {
         if (c[0] < 0 || c[0] >= space.nx ||
@@ -150,7 +346,7 @@ SpaceSystem::~SpaceSystem()
     freeDevice(space_data.d_normals_x);
     freeDevice(space_data.d_normals_y);
     freeDevice(space_data.d_normals_z);
-    }
+}
 
 const SpaceData& SpaceSystem::data() const
 {
@@ -228,24 +424,26 @@ bool SpaceSystem::loadVoxelDomain(const char* filename)
     }
 
     const std::size_t normal_component_bytes =
-    static_cast<std::size_t>(space_data.num_cells) * sizeof(double);
+        static_cast<std::size_t>(space_data.num_cells) * sizeof(double);
 
-const std::size_t normal_vector_bytes =
-    static_cast<std::size_t>(space_data.num_cells) * 3 * sizeof(double);
+    const std::size_t normal_vector_bytes =
+        static_cast<std::size_t>(space_data.num_cells) * 3 * sizeof(double);
 
-if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
-                           normal_vector_bytes),
-            "cudaMallocHost(h_normals)")) {
-    return false;
-}
+    if (!cudaOk(cudaMallocHost(reinterpret_cast<void**>(&space_data.h_normals),
+                               normal_vector_bytes),
+                "cudaMallocHost(h_normals)")) {
+        return false;
+    }
 
-if (!readBytes(file, space_data.h_normals, normal_vector_bytes)) {
-    return false;
-}
+    if (!readBytes(file, space_data.h_normals, normal_vector_bytes)) {
+        return false;
+    }
 
-    double *normals_x = new double[space_data.num_cells];
-    double *normals_y = new double[space_data.num_cells];
-    double *normals_z = new double[space_data.num_cells];
+    repairBoundaryNormals(space_data);
+
+    std::vector<double> normals_x(static_cast<std::size_t>(space_data.num_cells));
+    std::vector<double> normals_y(static_cast<std::size_t>(space_data.num_cells));
+    std::vector<double> normals_z(static_cast<std::size_t>(space_data.num_cells));
 
     for (int i = 0; i < space_data.num_cells; ++i) {
         std::size_t id = static_cast<std::size_t>(i);
@@ -254,14 +452,32 @@ if (!readBytes(file, space_data.h_normals, normal_vector_bytes)) {
         normals_z[id] = space_data.h_normals[id * 3 + 2];
     }
 
-    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_x), normal_component_bytes);
-    cudaMemcpy(space_data.d_normals_x, normals_x, normal_component_bytes, cudaMemcpyHostToDevice);
-
-    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_y), normal_component_bytes);
-    cudaMemcpy(space_data.d_normals_y, normals_y, normal_component_bytes, cudaMemcpyHostToDevice);
-
-    cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_z), normal_component_bytes);
-    cudaMemcpy(space_data.d_normals_z, normals_z, normal_component_bytes, cudaMemcpyHostToDevice);
+    if (!cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_x),
+                           normal_component_bytes),
+                "cudaMalloc(d_normals_x)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_x,
+                           normals_x.data(),
+                           normal_component_bytes,
+                           cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals_x)") ||
+        !cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_y),
+                           normal_component_bytes),
+                "cudaMalloc(d_normals_y)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_y,
+                           normals_y.data(),
+                           normal_component_bytes,
+                           cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals_y)") ||
+        !cudaOk(cudaMalloc(reinterpret_cast<void**>(&space_data.d_normals_z),
+                           normal_component_bytes),
+                "cudaMalloc(d_normals_z)") ||
+        !cudaOk(cudaMemcpy(space_data.d_normals_z,
+                           normals_z.data(),
+                           normal_component_bytes,
+                           cudaMemcpyHostToDevice),
+                "cudaMemcpy(d_normals_z)")) {
+        return false;
+    }
 
     int explicit_inlet_count = 0;
     if (readValue(file, explicit_inlet_count)) {

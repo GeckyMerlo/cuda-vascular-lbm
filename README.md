@@ -95,11 +95,12 @@ z-aligned cylindrical vessel:
 
 - Solid walls use bounce-back behavior during streaming.
 - Inlet assumes a z-min inlet and imposes a positive z velocity.
-- Outlet assumes a z-max outlet and applies a simple pressure-style outlet.
+- Outlet copies distributions from a neighboring interior source cell, giving a
+  simple zero-gradient outflow.
 
 Important limitation: the voxel file stores normals, but the active LBM inlet
-and outlet kernels are still axis-specific. Arbitrary vascular inlet/outlet
-orientation is not fully generalized yet.
+velocity kernel is still axis-specific. Arbitrary vascular inlet orientation is
+not fully generalized yet.
 
 ### Particle Species
 
@@ -238,6 +239,7 @@ Fluid fields include:
 
 - Density.
 - Speed.
+- Finite-value mask for detecting invalid density or velocity cells.
 - Cell type.
 - Velocity vector.
 
@@ -594,12 +596,18 @@ output/lbm_stats.csv
 
 Important columns:
 
+- `finite_cells`
+- `nonfinite_cells`
 - `avg_density`
+- `min_density`
+- `max_density`
 - `avg_speed`
 - `max_speed`
 - `mass_flux_in`
 - `mass_flux_out`
 - `active_particles`
+- `finite_particles`
+- `nonfinite_particles`
 - `injected_total`
 - `dropped_total`
 - `exited_total`
@@ -725,7 +733,9 @@ Try:
 
 ## Current Limitations
 
-- Inlet and outlet LBM boundary kernels are still z-axis specific.
+- The LBM inlet velocity kernel is still z-axis specific.
+- The outlet is a simple zero-gradient extrapolation, not a fully developed
+  pressure or traction boundary condition.
 - RBCs use ellipsoid orientation for state/output, but drag and contact use an
   effective sphere radius.
 - Wall interaction is a minimal repulsion, not a full wall-contact model.

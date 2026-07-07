@@ -46,7 +46,7 @@ COMMON_NVCC_FLAGS := --std=c++17 -rdc=true $(OPT_FLAGS) $(GENCODE_FLAGS) $(INCLU
 DEPFLAGS := -MMD -MP
 
 # Positional simulation arguments.
-MESH_FILE := msh/cilindric_vessel_stenosis30_voxel_domain.bin
+MESH_FILE := msh/voxel_domain.bin
 STEPS := 500
 OUTPUT_INTERVAL := 10
 TAU := 0.8
