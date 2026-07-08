@@ -5,6 +5,7 @@ from tqdm import tqdm
 from time import perf_counter
 from pathlib import Path
 from collections import deque
+import argparse
 
 # Cell types
 FLUID  = 0
@@ -110,9 +111,21 @@ def flood_fill_boundary_limited(cell_type, seed_ids, allowed_mask, new_type, nx,
 
 
 def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--geo",
+        default="vena_cilindrica.geo",
+        help="Geometry file in msh/"
+    )
+
+    args = parser.parse_args()
     project_root = Path(__file__).resolve().parents[1]
-    geo_file = project_root / "msh" / "vena_cilindrica.geo"
-    output_file = project_root / "msh" / "voxel_domain.bin"
+
+    geo_file = project_root / "msh" / args.geo
+    geometry_name = geo_file.stem     
+    output_file = project_root / "msh" / f"{geometry_name}_voxel_domain.bin"
+    vtk_file    = project_root / "msh" / f"{geometry_name}.vtk"
 
     dx = 0.25          # start with 0.5, then try 0.25, then 0.1
     batch_z = 2      # number of z-slices processed at once
@@ -129,7 +142,6 @@ def main():
         gmsh.model.mesh.generate(3)
         toc(t)
 
-        vtk_file = project_root / "msh" / "vena_cilindrica.vtk"
         gmsh.write(str(vtk_file))
         print(f"Mesh saved to {vtk_file}")
 
