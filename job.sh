@@ -2,7 +2,7 @@
 #SBATCH --job-name=HESP_Project
 #SBATCH --nodes=1 
 #SBATCH --gres=gpu:a40:1
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 #SBATCH --export=NONE
 
 set -euo pipefail

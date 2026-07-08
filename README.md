@@ -235,6 +235,10 @@ The solver writes:
   are enabled.
 - `output/lbm_stats.csv`: time-series fluid and particle diagnostics.
 
+When `--warmup-steps` is greater than zero, the warmup advances the solver before
+any output files or CSV rows are created. The first recorded `step = 0` output is
+the post-warmup state.
+
 Fluid fields include:
 
 - Density.
@@ -342,8 +346,8 @@ folder.
 ### Makefile Wrapper
 
 The repository includes a top-level `Makefile` with editable variables for the
-mesh path, number of steps, output interval, `tau`, particle capacity, injection
-rates, and contact parameters.
+mesh path, number of steps, output interval, warmup length, `tau`, particle
+capacity, injection rates, and contact parameters.
 
 Build:
 
@@ -382,6 +386,7 @@ Before running `make run`, edit these variables near the top of `Makefile`:
 MESH_FILE := msh/voxel_domain.bin
 STEPS := 50000
 OUTPUT_INTERVAL := 200
+WARMUP_STEPS := 0
 TAU := 0.8
 MAX_PARTICLES := 10000
 RBC_RATE := 0.05
@@ -441,7 +446,7 @@ build-cuda/Release/vascular_lbm.exe
 General syntax:
 
 ```text
-vascular_lbm [mesh_file] [steps] [output_interval] [tau] [particle options]
+vascular_lbm [mesh_file] [steps] [output_interval] [tau] [options]
 ```
 
 Positional arguments:
@@ -449,9 +454,15 @@ Positional arguments:
 | Argument | Default | Meaning |
 |---|---:|---|
 | `mesh_file` | `msh/voxel_domain.bin` | Voxel domain to load |
-| `steps` | `200` | Number of simulation steps |
+| `steps` | `200` | Number of recorded simulation steps after any warmup |
 | `output_interval` | `20` | Fluid/stat output interval |
 | `tau` | `0.8` | BGK relaxation time, must be `> 0.5` |
+
+### Runtime Options
+
+| Option | Default | Meaning |
+|---|---:|---|
+| `--warmup-steps` | `0` | Steps to run before output begins. No VTI, VTP, or CSV rows are written during warmup, and output numbering starts at `0` after warmup. |
 
 ### Fluid-Only Run
 
@@ -467,6 +478,12 @@ Linux:
 
 ```bash
 ./build-cuda/vascular_lbm msh/voxel_domain.bin 200 20 0.8
+```
+
+Run a 1000-step warmup before recording 5000 steps:
+
+```bash
+./build-cuda/vascular_lbm msh/voxel_domain.bin 5000 100 0.8 --warmup-steps 1000
 ```
 
 ### Particle-Coupled Run
@@ -505,7 +522,7 @@ The same command in one line:
 | `--max-particle-force` | `0.02` | Per-particle force cap before integration. Set `0` to disable. |
 | `--max-particle-speed` | `0.05` | Per-particle speed cap after velocity updates. Set `0` to disable. |
 
-Options can be written either as:
+Long options can be written either as:
 
 ```text
 --max-particles 5000

@@ -45,14 +45,16 @@ endif
 COMMON_NVCC_FLAGS := --std=c++17 -rdc=true $(OPT_FLAGS) $(GENCODE_FLAGS) $(INCLUDES) $(CPPFLAGS) $(NVCCFLAGS)
 DEPFLAGS := -MMD -MP
 
-# Positional simulation arguments.
-MESH_FILE := msh/voxel_domain.bin
-STEPS := 50000
-OUTPUT_INTERVAL := 200
+# Positional and runtime simulation arguments.
+MESH_FILE := msh/cilindric_vessel_stenosis30_voxel_domain.bin
+# MESH_FILE := msh/voxel_domain.bin
+STEPS := 10000
+OUTPUT_INTERVAL := 100
+WARMUP_STEPS := 35000
 TAU := 0.8
 
 # Particle simulation arguments. Set MAX_PARTICLES to 0 to disable particles.
-MAX_PARTICLES := 10000
+MAX_PARTICLES := 5000
 RBC_RATE := 0.05
 PLATELET_RATE := 0.02
 LEUKOCYTE_RATE := 0.02
@@ -66,13 +68,14 @@ FRICTION := 0.2
 WALL_STIFFNESS := 0.03
 WALL_DAMPING := 0.04
 MAX_PARTICLE_FORCE := 0.02
-MAX_PARTICLE_SPEED := 0.05
+MAX_PARTICLE_SPEED := 0.06
 
 SIM_ARGS := \
 	$(MESH_FILE) \
 	$(STEPS) \
 	$(OUTPUT_INTERVAL) \
 	$(TAU) \
+	--warmup-steps $(WARMUP_STEPS) \
 	--max-particles $(MAX_PARTICLES) \
 	--rbc-rate $(RBC_RATE) \
 	--platelet-rate $(PLATELET_RATE) \
@@ -87,7 +90,7 @@ SIM_ARGS := \
 	--max-particle-force $(MAX_PARTICLE_FORCE) \
 	--max-particle-speed $(MAX_PARTICLE_SPEED)
 
-FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU)
+FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU) --warmup-steps $(WARMUP_STEPS)
 
 .PHONY: all build run run-fluid clean clean-output print-args print-build
 

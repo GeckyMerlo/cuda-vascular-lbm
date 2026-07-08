@@ -564,35 +564,48 @@ __global__ void outlet_kernel(
     if (k >= num_outlet_cells) return;
 
     int id = outlet_ids[k];
-    int src_id = outlet_src_ids[k];
-    int num_cells = nx * ny * nz;
 
     if (cell_type[id] != OUTLET) return;
-    if (src_id < 0 || src_id >= num_cells || cell_type[src_id] == SOLID) return;
 
-    double local_rho = 0.0;
-    double local_ux = 0.0;
-    double local_uy = 0.0;
-    double local_uz = 0.0;
+    // z_max outlet, unknown populations have cz < 0:
+    // 6, 12, 13, 16, 17
 
-    for (int q = 0; q < Q; q++) {
-        double fq = f[src_id * Q + q];
-        f[id * Q + q] = fq;
-        local_rho += fq;
-        local_ux += fq * d_cx[q];
-        local_uy += fq * d_cy[q];
-        local_uz += fq * d_cz[q];
-    }
+    double rho_out = 1.0;
 
-    rho[id] = local_rho;
-    if (local_rho > 1e-12) {
-        ux[id] = local_ux / local_rho;
-        uy[id] = local_uy / local_rho;
-        uz[id] = local_uz / local_rho;
-    } else {
-        ux[id] = 0.0;
-        uy[id] = 0.0;
-        uz[id] = 0.0;
+    double ux_out = 0.0;
+    double uy_out = 0.0;
+
+    double S0 =
+        f[id*Q + 0] +
+        f[id*Q + 1] + f[id*Q + 2] +
+        f[id*Q + 3] + f[id*Q + 4] +
+        f[id*Q + 7] + f[id*Q + 8] +
+        f[id*Q + 9] + f[id*Q + 10];
+
+    double Splus =
+        f[id*Q + 5] +
+        f[id*Q + 11] +
+        f[id*Q + 14] +
+        f[id*Q + 15] +
+        f[id*Q + 18];
+
+    double uz_out = (S0 + 2.0*Splus) / rho_out - 1.0;
+
+    rho[id] = rho_out;
+    ux[id]  = ux_out;
+    uy[id]  = uy_out;
+    uz[id]  = uz_out;
+
+    int qs[5] = {6, 12, 13, 16, 17};
+
+    for (int i = 0; i < 5; i++) {
+        int q   = qs[i];
+        int opp = d_opposite[q];
+
+        double feq   = feq_q(q,   rho_out, ux_out, uy_out, uz_out);
+        double feq_opp = feq_q(opp, rho_out, ux_out, uy_out, uz_out);
+
+        f[id*Q + q] = feq + (f[id*Q + opp] - feq_opp);
     }
 }
 

@@ -75,6 +75,7 @@ struct RuntimeConfig {
     std::string mesh_file = "msh/voxel_domain.bin";
     int steps = 200;
     int output_interval = 20;
+    int warmup_steps = 0;
     double tau = 0.8;
     ParticleConfig particles;
 };
@@ -137,6 +138,8 @@ RuntimeConfig parseArgs(int argc, char** argv)
 
         if (name == "--max-particles") {
             config.particles.max_particles = std::stoi(value);
+        } else if (name == "--warmup-steps") {
+            config.warmup_steps = std::stoi(value);
         } else if (name == "--rbc-rate") {
             config.particles.rbc_rate = std::stod(value);
         } else if (name == "--platelet-rate") {
@@ -665,6 +668,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    if (config.warmup_steps < 0) {
+        std::cerr << "--warmup-steps must be non-negative\n";
+        return 1;
+    }
+
     if (config.output_interval <= 0) {
         std::cerr << "output_interval must be positive\n";
         return 1;
@@ -743,36 +751,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::filesystem::create_directories("output");
-    std::ofstream stats_file("output/lbm_stats.csv");
-    if (!stats_file) {
-        std::cerr << "Failed to open output/lbm_stats.csv\n";
-        return 1;
-    }
-
-    stats_file
-        << "step,active_cells,finite_cells,nonfinite_cells,"
-        << "avg_density,min_density,max_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,"
-        << "avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,"
-        << "mass_flux_in,mass_flux_out,"
-        << "active_particles,finite_particles,nonfinite_particles,"
-        << "injected_total,dropped_total,exited_total,avg_particle_speed,max_particle_speed,"
-        << "total_reaction_x,total_reaction_y,total_reaction_z,total_reaction_mag\n";
-
-    writeStats(
-        stats_file,
-        0,
-        computeFluidStats(domain, lbm.data()),
-        particles_enabled ? computeParticleStats(particle_system.data(), lbm.data(), domain.num_cells)
-                          : ParticleStats{});
-    writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
-    if (particles_enabled) {
-        writeParticleVTP("output/particles_000000.vtp", domain, particle_system.data());
-    }
-
     InjectionAccumulator injection;
 
-    for (int step = 1; step <= config.steps; ++step) {
+    auto advanceSimulationStep = [&](int absolute_step) {
         if (particles_enabled) {
             const int rbc_count = injectionCount(config.particles.rbc_rate, injection.rbc);
             const int platelet_count = injectionCount(config.particles.platelet_rate, injection.platelet);
@@ -782,7 +763,7 @@ int main(int argc, char** argv)
                 particle_system.data(),
                 domain,
                 lbm.data(),
-                step,
+                absolute_step,
                 rbc_count,
                 platelet_count,
                 leukocyte_count);
@@ -815,6 +796,54 @@ int main(int argc, char** argv)
 
         if (!cudaOk(cudaGetLastError(), "simulation kernel launch") ||
             !cudaOk(cudaDeviceSynchronize(), "simulation step synchronization")) {
+            return false;
+        }
+
+        return true;
+    };
+
+    if (config.warmup_steps > 0) {
+        std::cout
+            << "Running warmup: " << config.warmup_steps
+            << " steps (no output files)\n";
+        for (int warmup_step = 1; warmup_step <= config.warmup_steps; ++warmup_step) {
+            if (!advanceSimulationStep(warmup_step)) {
+                return 1;
+            }
+        }
+        std::cout << "Warmup complete; recording " << config.steps << " steps\n";
+    }
+
+    std::filesystem::create_directories("output");
+    std::ofstream stats_file("output/lbm_stats.csv");
+    if (!stats_file) {
+        std::cerr << "Failed to open output/lbm_stats.csv\n";
+        return 1;
+    }
+
+    stats_file
+        << "step,active_cells,finite_cells,nonfinite_cells,"
+        << "avg_density,min_density,max_density,avg_ux,avg_uy,avg_uz,avg_speed,max_speed,"
+        << "avg_density_inlet,avg_density_outlet,avg_uz_inlet,avg_uz_outlet,"
+        << "mass_flux_in,mass_flux_out,"
+        << "active_particles,finite_particles,nonfinite_particles,"
+        << "injected_total,dropped_total,exited_total,avg_particle_speed,max_particle_speed,"
+        << "total_reaction_x,total_reaction_y,total_reaction_z,total_reaction_mag\n";
+
+    writeStats(
+        stats_file,
+        0,
+        computeFluidStats(domain, lbm.data()),
+        particles_enabled ? computeParticleStats(particle_system.data(), lbm.data(), domain.num_cells)
+                          : ParticleStats{});
+    writeFluidVTI("output/fluid_000000.vti", domain, lbm.data());
+    if (particles_enabled) {
+        writeParticleVTP("output/particles_000000.vtp", domain, particle_system.data());
+    }
+
+    for (int step = 1; step <= config.steps; ++step) {
+        const int absolute_step = config.warmup_steps + step;
+        if (!advanceSimulationStep(absolute_step)) {
             return 1;
         }
 
@@ -834,7 +863,11 @@ int main(int argc, char** argv)
             writeFluidVTI(filename, domain, lbm.data());
 
             std::cout
-                << "step " << step
+                << "step " << step;
+            if (config.warmup_steps > 0) {
+                std::cout << " absolute_step=" << absolute_step;
+            }
+            std::cout
                 << " avg_uz=" << fluid_stats.avg_uz
                 << " max_speed=" << fluid_stats.max_speed;
             if (fluid_stats.nonfinite_cells > 0) {
