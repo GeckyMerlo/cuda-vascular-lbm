@@ -77,6 +77,7 @@ struct RuntimeConfig {
     int output_interval = 20;
     int warmup_steps = 0;
     double tau = 0.8;
+    OutletKernelVariant outlet_kernel = OutletKernelVariant::ZhouHe;
     ParticleConfig particles;
 };
 
@@ -114,6 +115,37 @@ std::string optionValue(const std::string& arg, char** argv, int argc, int& i)
 
     ++i;
     return argv[i];
+}
+
+OutletKernelVariant parseOutletKernelVariant(const std::string& value)
+{
+    if (value == "copy_all") return OutletKernelVariant::CopyAll;
+    if (value == "copy_missing") return OutletKernelVariant::CopyMissing;
+    if (value == "equilibrium_rho1") return OutletKernelVariant::EquilibriumRho1;
+    if (value == "convective_soft") return OutletKernelVariant::ConvectiveSoft;
+    if (value == "zhou_he") return OutletKernelVariant::ZhouHe;
+
+    throw std::runtime_error(
+        "Unknown outlet kernel: " + value +
+        " (expected copy_all, copy_missing, equilibrium_rho1, convective_soft, zhou_he)");
+}
+
+const char* outletKernelName(OutletKernelVariant variant)
+{
+    switch (variant) {
+    case OutletKernelVariant::CopyAll:
+        return "copy_all";
+    case OutletKernelVariant::CopyMissing:
+        return "copy_missing";
+    case OutletKernelVariant::EquilibriumRho1:
+        return "equilibrium_rho1";
+    case OutletKernelVariant::ConvectiveSoft:
+        return "convective_soft";
+    case OutletKernelVariant::ZhouHe:
+        return "zhou_he";
+    }
+
+    return "unknown";
 }
 
 RuntimeConfig parseArgs(int argc, char** argv)
@@ -164,6 +196,8 @@ RuntimeConfig parseArgs(int argc, char** argv)
             config.particles.max_particle_force = std::stod(value);
         } else if (name == "--max-particle-speed") {
             config.particles.max_particle_speed = std::stod(value);
+        } else if (name == "--outlet-kernel") {
+            config.outlet_kernel = parseOutletKernelVariant(value);
         } else {
             throw std::runtime_error("Unknown option: " + name);
         }
@@ -719,8 +753,9 @@ int main(int argc, char** argv)
         << domain.nx << " x " << domain.ny << " x " << domain.nz
         << " cells, inlets=" << domain.num_inlets
         << ", outlets=" << domain.num_outlets << '\n';
+    std::cout << "Outlet kernel: " << outletKernelName(config.outlet_kernel) << '\n';
 
-    LBMSystem lbm(domain, dt, config.tau);
+    LBMSystem lbm(domain, dt, config.tau, config.outlet_kernel);
     ForceModel force_model;
     ParticleSystem particle_system;
     const bool particles_enabled = config.particles.max_particles > 0;

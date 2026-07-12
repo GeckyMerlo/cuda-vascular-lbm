@@ -140,3 +140,12 @@ Schema of required and possible kernels made with LLM (not all the physics alrea
 Python lbm library --- studied to understand how to apply boundary conditions
 
 https://pycodegen.pages.i10git.cs.fau.de/lbmpy/sphinx/boundary_conditions.html?utm_source=chatgpt.com#lbmpy.boundaries.boundaryconditions.NeumannByCopy
+
+
+
+Things to do:
+
+- plot of the error in fluid in- fluid out with very brief introduction to the physics of the various lbm kernels
+- Zhuo - He 
+- Confronto con pousseille normalizzato  u_z / u_max = 1 - (r/R)^2 per validità fluido lbm
+- Scelte progettuali cuda

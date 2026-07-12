@@ -22,10 +22,15 @@ double computeTotalMassCPU(
     return mass;
 }
 
-LBMSystem::LBMSystem(const SpaceData& space_data, double dt, double tau)
+LBMSystem::LBMSystem(
+    const SpaceData& space_data,
+    double dt,
+    double tau,
+    OutletKernelVariant outlet_variant)
     : dt(dt),
       tau(tau),
       omega(1.0 / tau),
+      outlet_variant(outlet_variant),
       fluid(space_data.nx, space_data.ny, space_data.nz),
       space(space_data)
 {
@@ -143,20 +148,83 @@ void LBMSystem::applyBoundaryConditions() {
     int grid_outlet = (space.num_outlets + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
-    outlet_kernel<<<grid_outlet, block>>>(
-        fluid.f,
-        fluid.density,
-        fluid.velocity_x,
-        fluid.velocity_y,
-        fluid.velocity_z,
-        space.d_outlet_ids,
-        space.d_outlet_src_ids,
-        space.num_outlets,
-        space.d_cell_type,
-        space.nx,
-        space.ny,
-        space.nz
-    );
+    switch (outlet_variant) {
+    case OutletKernelVariant::CopyAll:
+        outlet_copy_all_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::CopyMissing:
+        outlet_copy_missing_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::EquilibriumRho1:
+        outlet_equilibrium_rho1_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::ConvectiveSoft:
+        outlet_convective_soft_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::ZhouHe:
+        outlet_zhou_he_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    }
 }
 
 void LBMSystem::computeMacroscopicVariables() {
@@ -200,20 +268,83 @@ void LBMSystem::computeOutlet() {
     int grid_outlet = (space.num_outlets + block - 1) / block;
     if (grid_outlet <= 0 || space.d_outlet_src_ids == nullptr) return;
 
-    outlet_kernel<<<grid_outlet, block>>>(
-        fluid.f,
-        fluid.density,
-        fluid.velocity_x,
-        fluid.velocity_y,
-        fluid.velocity_z,
-        space.d_outlet_ids,
-        space.d_outlet_src_ids,
-        space.num_outlets,
-        space.d_cell_type,
-        space.nx,
-        space.ny,
-        space.nz
-    );
+    switch (outlet_variant) {
+    case OutletKernelVariant::CopyAll:
+        outlet_copy_all_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::CopyMissing:
+        outlet_copy_missing_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::EquilibriumRho1:
+        outlet_equilibrium_rho1_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::ConvectiveSoft:
+        outlet_convective_soft_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    case OutletKernelVariant::ZhouHe:
+        outlet_zhou_he_kernel<<<grid_outlet, block>>>(
+            fluid.f,
+            fluid.density,
+            fluid.velocity_x,
+            fluid.velocity_y,
+            fluid.velocity_z,
+            space.d_outlet_ids,
+            space.d_outlet_src_ids,
+            space.num_outlets,
+            space.d_cell_type,
+            space.nx,
+            space.ny,
+            space.nz);
+        break;
+    }
 }
 
 void LBMSystem::computeInlet() {
@@ -254,8 +385,6 @@ void LBMSystem::copy_boundary_to_temp() {
         space.num_cells
     );
 }
-
-
 
 
 

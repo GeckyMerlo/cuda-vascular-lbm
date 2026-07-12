@@ -11,6 +11,27 @@ __device__ double feq_q(int q, double rho, double ux, double uy, double uz) {
         (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
 }
 
+__device__ void distribution_moments(
+    const double* f,
+    double& rho,
+    double& momentum_x,
+    double& momentum_y,
+    double& momentum_z
+) {
+    rho = 0.0;
+    momentum_x = 0.0;
+    momentum_y = 0.0;
+    momentum_z = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        const double fq = f[q];
+        rho += fq;
+        momentum_x += fq * d_cx[q];
+        momentum_y += fq * d_cy[q];
+        momentum_z += fq * d_cz[q];
+    }
+}
+
 __global__ void initializeEquilibrium_kernel(
     double* f,
     double* f_temp,
@@ -332,11 +353,26 @@ __global__ void inlet_kernel(
 
         f[id*Q + q] = feq + (f[id*Q + opp] - feq_opp);
     }
+
+    double reconstructed_rho = 0.0;
+    double momentum_x = 0.0;
+    double momentum_y = 0.0;
+    double momentum_z = 0.0;
+    distribution_moments(
+        &f[id*Q], reconstructed_rho, momentum_x, momentum_y, momentum_z);
+    (void)reconstructed_rho;
+    (void)momentum_z;
+
+    const double correction_x = 0.5 * (rho_in * ux_in - momentum_x);
+    f[id*Q + 11] += correction_x;
+    f[id*Q + 14] -= correction_x;
+
+    const double correction_y = 0.5 * (rho_in * uy_in - momentum_y);
+    f[id*Q + 15] += correction_y;
+    f[id*Q + 18] -= correction_y;
 }
 
-/* copy all from src_id
-
-__global__ void outlet_kernel(
+__global__ void outlet_copy_all_kernel(
     double* f,
     double* rho,
     double* ux,
@@ -345,7 +381,7 @@ __global__ void outlet_kernel(
     const int* outlet_ids,
     const int* outlet_src_ids,
     int num_outlet_cells,
-    CellType* cell_type,
+    const CellType* cell_type,
     int nx, int ny, int nz
 ) {
     int k = blockIdx.x * blockDim.x + threadIdx.x;
@@ -354,27 +390,19 @@ __global__ void outlet_kernel(
     int id     = outlet_ids[k];
     int src_id = outlet_src_ids[k];
 
+    if (src_id < 0 || cell_type[src_id] != FLUID) return;
+
     rho[id] = rho[src_id];
     ux[id]  = ux[src_id];
     uy[id]  = uy[src_id];
     uz[id]  = uz[src_id];
 
-    //double u2 = ux[id]*ux[id] + uy[id]*uy[id] + uz[id]*uz[id];
-    if (cell_type[src_id] != FLUID) return;
-    
     for (int q = 0; q < Q; q++) {
-        /*double cu = d_cx[q]*ux[id] + d_cy[q]*uy[id] + d_cz[q]*uz[id];
-
-        f[id * Q + q] = d_w[q] * rho[id] *
-            (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2); 
         f[id * Q + q] = f[src_id * Q + q];
     }
 }
-*/
 
-/* copy only missing
-
-__global__ void outlet_kernel(
+__global__ void outlet_copy_missing_kernel(
     double* f,
     double* rho,
     double* ux,
@@ -423,11 +451,8 @@ __global__ void outlet_kernel(
         }
     }
 }
-*/
 
-/* equilibrium rho_out = 1
- 
-__global__ void outlet_kernel(
+__global__ void outlet_equilibrium_rho1_kernel(
     double* f,
     double* rho,
     double* ux,
@@ -472,10 +497,8 @@ __global__ void outlet_kernel(
             (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*u2);
     }
 }
-*/
 
-/* convective soft correction
-__global__ void outlet_kernel(
+__global__ void outlet_convective_soft_kernel(
     double* f,
     double* rho,
     double* ux,
@@ -546,9 +569,9 @@ __global__ void outlet_kernel(
         uy[id] = 0.0;
         uz[id] = 0.0;
     }
-} */
+}
 
-__global__ void outlet_kernel(
+__global__ void outlet_zhou_he_kernel(
     double* f,
     double* rho,
     double* ux,
@@ -607,6 +630,23 @@ __global__ void outlet_kernel(
 
         f[id*Q + q] = feq + (f[id*Q + opp] - feq_opp);
     }
+
+    double reconstructed_rho = 0.0;
+    double momentum_x = 0.0;
+    double momentum_y = 0.0;
+    double momentum_z = 0.0;
+    distribution_moments(
+        &f[id*Q], reconstructed_rho, momentum_x, momentum_y, momentum_z);
+    (void)reconstructed_rho;
+    (void)momentum_z;
+
+    const double correction_x = 0.5 * (rho_out * ux_out - momentum_x);
+    f[id*Q + 13] += correction_x;
+    f[id*Q + 12] -= correction_x;
+
+    const double correction_y = 0.5 * (rho_out * uy_out - momentum_y);
+    f[id*Q + 17] += correction_y;
+    f[id*Q + 16] -= correction_y;
 }
 
 __global__ void copy_boundary_to_temp_kernel(
@@ -624,5 +664,3 @@ __global__ void copy_boundary_to_temp_kernel(
         }
     }
 }
-
-

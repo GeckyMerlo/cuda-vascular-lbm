@@ -1,1 +1,5 @@
 *.o*
+__pycache__/
+build-cuda/
+output/
+validation_runs/

@@ -52,6 +52,7 @@ STEPS := 30000
 OUTPUT_INTERVAL := 300
 WARMUP_STEPS := 20000
 TAU := 0.8
+OUTLET_KERNEL := zhou_he
 
 # Particle simulation arguments. Set MAX_PARTICLES to 0 to disable particles.
 MAX_PARTICLES := 10000
@@ -76,6 +77,7 @@ SIM_ARGS := \
 	$(OUTPUT_INTERVAL) \
 	$(TAU) \
 	--warmup-steps $(WARMUP_STEPS) \
+	--outlet-kernel $(OUTLET_KERNEL) \
 	--max-particles $(MAX_PARTICLES) \
 	--rbc-rate $(RBC_RATE) \
 	--platelet-rate $(PLATELET_RATE) \
@@ -90,7 +92,7 @@ SIM_ARGS := \
 	--max-particle-force $(MAX_PARTICLE_FORCE) \
 	--max-particle-speed $(MAX_PARTICLE_SPEED)
 
-FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU) --warmup-steps $(WARMUP_STEPS)
+FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU) --warmup-steps $(WARMUP_STEPS) --outlet-kernel $(OUTLET_KERNEL)
 
 .PHONY: all build run run-fluid clean clean-output print-args print-build
 

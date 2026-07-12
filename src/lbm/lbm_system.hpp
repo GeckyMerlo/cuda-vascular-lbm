@@ -6,9 +6,21 @@
 #include "../space/space_data.cuh"
 #include "lbm_constants.cuh"
 
+enum class OutletKernelVariant {
+    CopyAll,
+    CopyMissing,
+    EquilibriumRho1,
+    ConvectiveSoft,
+    ZhouHe
+};
+
 class LBMSystem {
 public:
-    LBMSystem(const SpaceData& space_data, double dt, double tau);
+    LBMSystem(
+        const SpaceData& space_data,
+        double dt,
+        double tau,
+        OutletKernelVariant outlet_variant = OutletKernelVariant::ZhouHe);
     ~LBMSystem();
 
     LBMSystem(const LBMSystem&) = delete;
@@ -23,6 +35,7 @@ private:
     double dt;
     double tau;
     double omega;
+    OutletKernelVariant outlet_variant;
 
     FluidData fluid;
     const SpaceData& space;
