@@ -277,7 +277,6 @@ Particle fields include:
     |-- particles/
     |-- forces/
     |-- space/
-    |-- msh_utils/
     `-- mesh_preprocessing.py
 ```
 
@@ -441,98 +440,193 @@ build-cuda/vascular_lbm
 build-cuda/Release/vascular_lbm.exe
 ```
 
-## Running
+## Operation
 
-General syntax:
+On the CUDA server, enter the project directory first:
+
+```bash
+cd cuda/hesp-exercises/exercises/Project
+```
+
+### Quick Run
+
+For the standard workflow, build once and run the fluid-only simulation:
+
+```bash
+make build
+make run-fluid
+```
+
+For a direct executable run without particles:
+
+```bash
+./build-cuda/vascular_lbm msh/voxel_domain.bin 200 20 0.8
+```
+
+For the bundled stenotic vessel domain:
+
+```bash
+./build-cuda/vascular_lbm msh/cilindric_vessel_stenosis30_voxel_domain.bin 1000 100 0.8
+```
+
+For a run with warmup:
+
+```bash
+./build-cuda/vascular_lbm msh/voxel_domain.bin 5000 100 0.8 --warmup-steps 1000
+```
+
+For a particle-coupled run:
+
+```bash
+./build-cuda/vascular_lbm msh/voxel_domain.bin 300 20 0.8 \
+  --max-particles 5000 \
+  --rbc-rate 2 \
+  --platelet-rate 0.2 \
+  --leukocyte-rate 0.02
+```
+
+For LBM kernel timing:
+
+```bash
+./build-cuda/vascular_lbm msh/voxel_domain.bin 1000 100 0.8 --performance-computation
+```
+
+The most important outputs are:
 
 ```text
-vascular_lbm [mesh_file] [steps] [output_interval] [tau] [options]
+output/lbm_stats.csv
+output/fluid_*.vti
+output/particles_*.vtp
+output/kernel_profile.csv
+```
+
+`particles_*.vtp` is written only when particles are enabled.
+`kernel_profile.csv` is written only with `--performance-computation`.
+
+### Full Command Reference
+
+Basic environment checks:
+
+```bash
+nvcc --version
+nvidia-smi
+make print-build
+make print-args
+```
+
+Build commands:
+
+```bash
+make build
+make -B build
+make -B build BUILD_TYPE=Debug
+make -B build CUDA_ARCHS="75 80 86"
+make -B build BLOCK_SIZE=128
+make -B build BLOCK_SIZE=256
+make -B build BLOCK_SIZE=512
+```
+
+`BLOCK_SIZE` is passed to `nvcc` as the `CUDA_BLOCK_SIZE` macro, so the
+project must be rebuilt whenever this value changes.
+
+CMake equivalents:
+
+```bash
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release
+cmake --build build-cuda -j
+
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DCUDA_BLOCK_SIZE=256
+cmake --build build-cuda -j
+```
+
+Cleanup commands:
+
+```bash
+make clean
+make clean-output
+```
+
+Executable syntax:
+
+```bash
+./build-cuda/vascular_lbm [mesh_file] [steps] [output_interval] [tau] [options]
 ```
 
 Positional arguments:
 
 | Argument | Default | Meaning |
 |---|---:|---|
-| `mesh_file` | `msh/voxel_domain.bin` | Voxel domain to load |
-| `steps` | `200` | Number of recorded simulation steps after any warmup |
-| `output_interval` | `20` | Fluid/stat output interval |
-| `tau` | `0.8` | BGK relaxation time, must be `> 0.5` |
+| `mesh_file` | `msh/voxel_domain.bin` | Voxel domain to load. |
+| `steps` | `200` | Recorded simulation steps after warmup. |
+| `output_interval` | `20` | Fluid/stat output interval. |
+| `tau` | `0.8` | BGK relaxation time; must be `> 0.5`. |
 
-### Runtime Options
+Makefile run targets:
+
+```bash
+make run-fluid
+make run
+```
+
+Example conservative particle run:
+
+```bash
+./build-cuda/vascular_lbm msh/cilindric_vessel_stenosis30_voxel_domain.bin 1000 100 0.8 \
+  --warmup-steps 100 \
+  --max-particles 10000 \
+  --rbc-rate 0.01 \
+  --platelet-rate 0.005 \
+  --leukocyte-rate 0.005 \
+  --particle-substeps 8
+```
+
+Manual block-size timing sweep:
+
+```bash
+make -B build BLOCK_SIZE=128
+./build-cuda/vascular_lbm msh/voxel_domain.bin 1000 100 0.8 --performance-computation
+
+make -B build BLOCK_SIZE=256
+./build-cuda/vascular_lbm msh/voxel_domain.bin 1000 100 0.8 --performance-computation
+
+make -B build BLOCK_SIZE=512
+./build-cuda/vascular_lbm msh/voxel_domain.bin 1000 100 0.8 --performance-computation
+```
+
+Copy or rename `output/kernel_profile.csv` after each run if profiles from
+multiple block sizes must be kept.
+
+Long options accept both `--option value` and `--option=value`.
 
 | Option | Default | Meaning |
 |---|---:|---|
-| `--warmup-steps` | `0` | Steps to run before output begins. No VTI, VTP, or CSV rows are written during warmup, and output numbering starts at `0` after warmup. |
+| `--warmup-steps N` | `0` | Runs `N` steps before output starts. |
+| `--outlet-kernel NAME` | `zhou_he` | Outlet variant: `zhou_he`, `copy_all`, `copy_missing`, `equilibrium_rho1`, or `convective_soft`. |
+| `--performance-computation` | off | Measures average GPU time for LBM kernels. |
+| `--performance_computation` | off | Equivalent underscore alias. |
+| `--max-particles N` | `0` | Enables particles with capacity `N`; `0` disables particles. |
+| `--rbc-rate X` | `1.0` | Average RBC injection attempts per step. |
+| `--platelet-rate X` | `0.0` | Average platelet injection attempts per step. |
+| `--leukocyte-rate X` | `0.0` | Average leukocyte injection attempts per step. |
+| `--particle-output-interval N` | fluid interval | Particle `.vtp` output interval. |
+| `--particle-substeps N` | `4` | Particle integration substeps per LBM step. |
+| `--contact-stiffness X` | `0.02` | Particle-particle contact stiffness. |
+| `--contact-damping X` | `0.04` | Particle-particle contact damping. |
+| `--friction X` | `0.2` | Tangential friction cap coefficient. |
+| `--wall-stiffness X` | `0.03` | Wall repulsion stiffness. |
+| `--wall-damping X` | `0.04` | Wall repulsion damping. |
+| `--max-particle-force X` | `0.02` | Maximum per-particle force. |
+| `--max-particle-speed X` | `0.05` | Maximum per-particle speed. |
 
-### Fluid-Only Run
-
-Particles are disabled by default.
-
-Windows:
-
-```powershell
-.\build-cuda\vascular_lbm.exe msh\voxel_domain.bin 200 20 0.8
-```
-
-Linux:
-
-```bash
-./build-cuda/vascular_lbm msh/voxel_domain.bin 200 20 0.8
-```
-
-Run a 1000-step warmup before recording 5000 steps:
-
-```bash
-./build-cuda/vascular_lbm msh/voxel_domain.bin 5000 100 0.8 --warmup-steps 1000
-```
-
-### Particle-Coupled Run
-
-Enable particles with `--max-particles`.
-
-```powershell
-.\build-cuda\vascular_lbm.exe msh\voxel_domain.bin 300 20 0.8 `
-  --max-particles 5000 `
-  --rbc-rate 2 `
-  --platelet-rate 0.2 `
-  --leukocyte-rate 0.02
-```
-
-The same command in one line:
-
-```powershell
-.\build-cuda\vascular_lbm.exe msh\voxel_domain.bin 300 20 0.8 --max-particles 5000 --rbc-rate 2 --platelet-rate 0.2 --leukocyte-rate 0.02
-```
-
-### Particle Options
-
-| Option | Default | Meaning |
-|---|---:|---|
-| `--max-particles` | `0` | Fixed particle capacity. Particles disabled at `0`. |
-| `--rbc-rate` | `1.0` | RBC injection attempts per step. |
-| `--platelet-rate` | `0.0` | Platelet injection attempts per step. |
-| `--leukocyte-rate` | `0.0` | Leukocyte injection attempts per step. |
-| `--particle-output-interval` | fluid interval | Particle VTP output interval. |
-| `--particle-substeps` | `4` | Particle integration substeps per LBM step. Fluid reaction is averaged over these substeps. |
-| `--contact-stiffness` | `0.02` | Sphere-contact spring stiffness. |
-| `--contact-damping` | `0.04` | Contact damping. |
-| `--friction` | `0.2` | Tangential friction cap coefficient. |
-| `--wall-stiffness` | `0.03` | Minimal wall repulsion stiffness. |
-| `--wall-damping` | `0.04` | Minimal wall repulsion damping. |
-| `--max-particle-force` | `0.02` | Per-particle force cap before integration. Set `0` to disable. |
-| `--max-particle-speed` | `0.05` | Per-particle speed cap after velocity updates. Set `0` to disable. |
-
-Long options can be written either as:
+The internal profiling CSV has this format:
 
 ```text
---max-particles 5000
+kernel,calls,total_ms,avg_ms
 ```
 
-or:
-
-```text
---max-particles=5000
-```
+This mode uses CUDA events to measure the main LBM kernels:
+`collide_kernel`, `stream_kernel`, `inlet_kernel`, outlet kernels, and
+`computeMacroscopicVariables_kernel`.
 
 ## Regenerating The Voxel Domain
 
