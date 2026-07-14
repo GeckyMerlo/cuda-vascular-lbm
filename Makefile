@@ -22,8 +22,7 @@ SOURCES := \
 	src/lbm/lbm_system.cpp \
 	src/space/space_system.cpp \
 	src/particles/particle_system.cpp \
-	src/forces/force_model.cpp \
-	src/msh_utils/mesh_reader.cpp
+	src/forces/force_model.cpp 
 
 OBJECTS := $(SOURCES:%=$(OBJ_DIR)/%.o)
 DEPS := $(OBJECTS:.o=.d)
