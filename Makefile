@@ -6,6 +6,7 @@ BUILD_DIR ?= build-cuda
 OBJ_DIR := $(BUILD_DIR)/obj
 BUILD_TYPE ?= Release
 CUDA_ARCHS ?= 75 80 86
+BLOCK_SIZE ?= 256
 
 TARGET := vascular_lbm
 
@@ -32,6 +33,7 @@ GENCODE_FLAGS := $(foreach arch,$(CUDA_ARCH_LIST),-gencode arch=compute_$(arch),
 
 INCLUDES := -Isrc
 CPPFLAGS ?=
+CPPFLAGS += -DCUDA_BLOCK_SIZE=$(BLOCK_SIZE)
 NVCCFLAGS ?=
 LDFLAGS ?=
 LDLIBS ?=
@@ -53,6 +55,7 @@ OUTPUT_INTERVAL := 300
 WARMUP_STEPS := 20000
 TAU := 0.8
 OUTLET_KERNEL := zhou_he
+PERFORMANCE_COMPUTATION ?= 0
 
 # Particle simulation arguments. Set MAX_PARTICLES to 0 to disable particles.
 MAX_PARTICLES := 10000
@@ -94,6 +97,11 @@ SIM_ARGS := \
 
 FLUID_ARGS := $(MESH_FILE) $(STEPS) $(OUTPUT_INTERVAL) $(TAU) --warmup-steps $(WARMUP_STEPS) --outlet-kernel $(OUTLET_KERNEL)
 
+ifeq ($(PERFORMANCE_COMPUTATION),1)
+SIM_ARGS += --performance-computation
+FLUID_ARGS += --performance-computation
+endif
+
 .PHONY: all build run run-fluid clean clean-output print-args print-build
 
 all: build
@@ -121,6 +129,8 @@ print-build:
 	@echo NVCC=$(NVCC)
 	@echo BUILD_TYPE=$(BUILD_TYPE)
 	@echo CUDA_ARCHS=$(CUDA_ARCH_LIST)
+	@echo BLOCK_SIZE=$(BLOCK_SIZE)
+	@echo PERFORMANCE_COMPUTATION=$(PERFORMANCE_COMPUTATION)
 	@echo EXE=$(EXE)
 
 clean:

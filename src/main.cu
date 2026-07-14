@@ -9,6 +9,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -78,6 +79,7 @@ struct RuntimeConfig {
     int warmup_steps = 0;
     double tau = 0.8;
     OutletKernelVariant outlet_kernel = OutletKernelVariant::ZhouHe;
+    bool performance_computation = false;
     ParticleConfig particles;
 };
 
@@ -164,6 +166,11 @@ RuntimeConfig parseArgs(int argc, char** argv)
         const std::size_t equals = name.find('=');
         if (equals != std::string::npos) {
             name = name.substr(0, equals);
+        }
+
+        if (name == "--performance-computation" || name == "--performance_computation") {
+            config.performance_computation = true;
+            continue;
         }
 
         const std::string value = optionValue(arg, argv, argc, i);
@@ -756,6 +763,10 @@ int main(int argc, char** argv)
     std::cout << "Outlet kernel: " << outletKernelName(config.outlet_kernel) << '\n';
 
     LBMSystem lbm(domain, dt, config.tau, config.outlet_kernel);
+    lbm.setKernelProfilingEnabled(config.performance_computation);
+    if (config.performance_computation) {
+        std::cout << "Kernel performance computation enabled for LBM kernels\n";
+    }
     ForceModel force_model;
     ParticleSystem particle_system;
     const bool particles_enabled = config.particles.max_particles > 0;
@@ -927,5 +938,35 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Wrote output/lbm_stats.csv\n";
+
+    if (config.performance_computation) {
+        const std::string profile_path = "output/kernel_profile.csv";
+        std::ofstream profile_file(profile_path);
+        if (!profile_file) {
+            std::cerr << "Failed to open " << profile_path << '\n';
+            return 1;
+        }
+
+        profile_file << "kernel,calls,total_ms,avg_ms\n";
+
+        std::cout
+            << std::fixed << std::setprecision(6)
+            << "Kernel profile (LBM):\n";
+        for (const LBMSystem::KernelTiming& timing : lbm.kernelTimings()) {
+            profile_file
+                << timing.name << ','
+                << timing.calls << ','
+                << timing.total_ms << ','
+                << timing.averageMs() << '\n';
+
+            std::cout
+                << "  " << timing.name
+                << ": calls=" << timing.calls
+                << " avg_ms=" << timing.averageMs()
+                << " total_ms=" << timing.total_ms << '\n';
+        }
+        std::cout << "Wrote " << profile_path << '\n';
+    }
+
     return 0;
 }

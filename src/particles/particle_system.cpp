@@ -1,5 +1,6 @@
 // particle_system.cpp
 #include "particle_system.hpp"
+#include "cuda_launch_config.cuh"
 #include "particle_kernels.cuh"
 
 #include <cuda_runtime.h>
@@ -99,7 +100,7 @@ void ParticleSystem::allocate(int n, int num_cells)
 
     resetCounters();
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (n + block - 1) / block;
     initializeInactive<<<grid, block>>>(
         d_particles.active,
@@ -232,7 +233,7 @@ void ParticleSystem::resetForces()
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::resetForces<<<grid, block>>>(
@@ -249,7 +250,7 @@ void ParticleSystem::updateVelocity(double dt)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::updateVelocity<<<grid, block>>>(
@@ -269,7 +270,7 @@ void ParticleSystem::updatePosition(double dt)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::updatePosition<<<grid, block>>>(
@@ -290,7 +291,7 @@ void ParticleSystem::clampForces(double max_force)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::clampForces_kernel<<<grid, block>>>(
@@ -309,7 +310,7 @@ void ParticleSystem::clampVelocities(double max_speed)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::clampVelocities_kernel<<<grid, block>>>(
@@ -331,7 +332,7 @@ void ParticleSystem::updateAngularVelocity(double dt)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::updateAngularVelocity<<<grid, block>>>(
@@ -350,7 +351,7 @@ void ParticleSystem::updateOrientation(double dt)
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::updateOrientation<<<grid, block>>>(
@@ -368,7 +369,7 @@ void ParticleSystem::swapForces()
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::swapForces<<<grid, block>>>(
@@ -384,7 +385,7 @@ void ParticleSystem::deactivateExited(const CellType* d_cell_type, int nx, int n
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::deactivateExited<<<grid, block>>>(
@@ -407,7 +408,7 @@ void ParticleSystem::resetCellList()
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int max_items = d_cell_list.num_cells > d_particles.n ? d_cell_list.num_cells : d_particles.n;
     int grid = (max_items + block - 1) / block;
 
@@ -426,7 +427,7 @@ void ParticleSystem::buildCellList(const CellType* d_cell_type, int nx, int ny, 
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (d_particles.n + block - 1) / block;
 
     ::buildCellList<<<grid, block>>>(

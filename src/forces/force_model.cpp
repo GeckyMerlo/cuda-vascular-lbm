@@ -1,4 +1,5 @@
 #include "force_model.hpp"
+#include "cuda_launch_config.cuh"
 
 #include <cuda_runtime.h>
 
@@ -550,7 +551,7 @@ __global__ void computeWallForces_kernel(
 
 void ForceModel::resetFluidForces(FluidData& fluid, int num_cells)
 {
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (num_cells + block - 1) / block;
     if (grid <= 0) return;
 
@@ -576,7 +577,7 @@ void ForceModel::injectParticles(
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (total + block - 1) / block;
 
     injectParticles_kernel<<<grid, block>>>(
@@ -609,7 +610,7 @@ void ForceModel::computeFluidForces(
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (p.n + block - 1) / block;
 
     computeDragAndFluidReaction_kernel<<<grid, block>>>(
@@ -638,7 +639,7 @@ void ForceModel::computeParticleForces(
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (p.n + block - 1) / block;
 
     computeContactForces_kernel<<<grid, block>>>(
@@ -660,7 +661,7 @@ void ForceModel::computeWallForces(
         return;
     }
 
-    int block = 256;
+    int block = kCudaBlockSize;
     int grid = (p.n + block - 1) / block;
 
     computeWallForces_kernel<<<grid, block>>>(

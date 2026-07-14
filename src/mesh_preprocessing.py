@@ -1,11 +1,12 @@
-import gmsh
-import trimesh
-import numpy as np
-from tqdm import tqdm
 from time import perf_counter
 from pathlib import Path
 from collections import deque
 import argparse
+
+np = None
+tqdm = None
+gmsh = None
+trimesh = None
 
 # Cell types
 FLUID  = 0
@@ -118,17 +119,58 @@ def main():
         default="vena_cilindrica.geo",
         help="Geometry file in msh/"
     )
+    parser.add_argument(
+        "--dx",
+        type=float,
+        default=0.25,
+        help="Voxel spacing"
+    )
+    parser.add_argument(
+        "--batch-z",
+        type=int,
+        default=2,
+        help="Number of z-slices processed at once"
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Output voxel domain path. Relative paths are resolved from the project root."
+    )
+    parser.add_argument(
+        "--vtk-output",
+        default=None,
+        help="Output VTK mesh path. Relative paths are resolved from the project root."
+    )
 
     args = parser.parse_args()
+
+    global np, tqdm, gmsh, trimesh
+    import numpy as np_module
+    from tqdm import tqdm as tqdm_module
+    import gmsh as gmsh_module
+    import trimesh as trimesh_module
+    np = np_module
+    tqdm = tqdm_module
+    gmsh = gmsh_module
+    trimesh = trimesh_module
+
     project_root = Path(__file__).resolve().parents[1]
 
     geo_file = project_root / "msh" / args.geo
     geometry_name = geo_file.stem     
-    output_file = project_root / "msh" / f"{geometry_name}_voxel_domain.bin"
-    vtk_file    = project_root / "msh" / f"{geometry_name}.vtk"
+    output_file = Path(args.output) if args.output else project_root / "msh" / f"{geometry_name}_voxel_domain.bin"
+    vtk_file = Path(args.vtk_output) if args.vtk_output else project_root / "msh" / f"{geometry_name}.vtk"
 
-    dx = 0.25          # start with 0.5, then try 0.25, then 0.1
-    batch_z = 2      # number of z-slices processed at once
+    if not output_file.is_absolute():
+        output_file = project_root / output_file
+    if not vtk_file.is_absolute():
+        vtk_file = project_root / vtk_file
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    vtk_file.parent.mkdir(parents=True, exist_ok=True)
+
+    dx = args.dx
+    batch_z = args.batch_z
 
     gmsh.initialize()
 

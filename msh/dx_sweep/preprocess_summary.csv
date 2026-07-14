@@ -1,0 +1,8 @@
+geo,dx,status,elapsed_s,output_file,vtk_file,nx,ny,nz,total_voxels,solid_cells,fluid_cells,inlet_cells,outlet_cells,active_cells
+vena_cilindrica.geo,0.5,ok,7.977458208995813,msh/dx_sweep/vena_cilindrica_dx0p5_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p5.vtk,16,16,60,15360,8640,6496,112,112,6720
+vena_cilindrica.geo,0.375,ok,14.410675249993801,msh/dx_sweep/vena_cilindrica_dx0p375_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p375.vtk,20,20,80,32000,15360,16224,208,208,16640
+vena_cilindrica.geo,0.25,ok,44.50519212499785,msh/dx_sweep/vena_cilindrica_dx0p25_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p25.vtk,28,28,120,94080,40320,52864,448,448,53760
+vena_cilindrica.geo,0.2,ok,84.84937208399788,msh/dx_sweep/vena_cilindrica_dx0p2_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p2.vtk,34,34,150,173400,67242,104758,700,700,106158
+vena_cilindrica.geo,0.15,ok,200.25996199999645,msh/dx_sweep/vena_cilindrica_dx0p15_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p15.vtk,44,44,200,387200,136983,247721,1248,1248,250217
+vena_cilindrica.geo,0.125,ok,340.6218293329948,msh/dx_sweep/vena_cilindrica_dx0p125_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p125.vtk,52,52,240,648960,218159,427225,1788,1788,430801
+vena_cilindrica.geo,0.1,ok,689.9615092909953,msh/dx_sweep/vena_cilindrica_dx0p1_voxel_domain.bin,msh/dx_sweep/vena_cilindrica_dx0p1.vtk,64,64,300,1228800,384787,838405,2804,2804,844013

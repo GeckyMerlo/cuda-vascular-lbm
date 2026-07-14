@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "fluid_data.cuh"
@@ -27,6 +28,17 @@ public:
     LBMSystem& operator=(const LBMSystem&) = delete;
 
     void step();
+    void setKernelProfilingEnabled(bool enabled);
+
+    struct KernelTiming {
+        std::string name;
+        double total_ms = 0.0;
+        int calls = 0;
+
+        double averageMs() const;
+    };
+
+    const std::vector<KernelTiming>& kernelTimings() const;
 
     FluidData& data();
     const FluidData& data() const;
@@ -50,5 +62,7 @@ private:
     void copy_boundary_to_temp();
 
     bool debug_mode = false; // Set to true to enable debug mode, false to disable
+    bool kernel_profiling_enabled = false;
+    std::vector<KernelTiming> kernel_timings;
     std::vector<double> h_f;
 };
