@@ -15,7 +15,6 @@ add_executable(vascular_lbm
     src/space/space_system.cpp
     src/particles/particle_system.cpp
     src/forces/force_model.cpp
-    src/msh_utils/mesh_reader.cpp
 )
 
 set_source_files_properties(
