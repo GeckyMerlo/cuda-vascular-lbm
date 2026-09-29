@@ -9,10 +9,10 @@ The model is mesoscopic. It is intended to study flow and particle transport in
 vessels that are larger than the represented particles. It is not a
 cell-resolved biomechanical model and it does not model deformable membranes.
 
-[![Simulation preview](docs/images/simulation-preview.png)](docs/media/stenosis-particle-simulation.mp4)
+![Animated simulation of particles moving through the stenotic vessel](docs/media/stenosis-particle-simulation.gif)
 
-_Click the image to open the MP4 demo. The vessel surface is colored by speed;
-particle colors identify RBCs, platelets, and leukocytes._
+_The vessel surface is colored by speed; particle colors identify RBCs,
+platelets, and leukocytes._
 
 ## What is implemented
 

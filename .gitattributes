@@ -15,6 +15,7 @@
 *.csv text eol=lf
 
 *.bin binary
+*.gif binary
 *.png binary
 *.pdf binary
 *.pptx binary

@@ -113,8 +113,10 @@ The displayed case reaches its highest speed in the constricted section, as
 expected when flow passes through a smaller cross-section. The image is a
 qualitative visualization in lattice units, not a patient-specific prediction.
 
-The accompanying [MP4 demo](media/stenosis-particle-simulation.mp4) shows the
-three particle species moving through the same stenotic geometry.
+The animation below shows the three particle species moving through the same
+stenotic geometry.
+
+![Animated particle simulation in the stenotic vessel](media/stenosis-particle-simulation.gif)
 
 ## Reproducing new measurements
 
